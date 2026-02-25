@@ -41,6 +41,7 @@ jobs:
       golangci-version: v2.2.0
       golangci-args: --timeout=5m
       continue-on-error: false
+      timeout-minutes: 15
       cancel-in-progress: false
 ```
 
@@ -108,6 +109,8 @@ jobs:
       tag-name: v1.2.3
       platforms: linux/amd64,linux/arm64
       push: true
+      timeout-minutes: 30
+      cancel-in-progress: false
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -152,6 +155,8 @@ jobs:
 - This repository includes `.github/workflows/validate-workflows.yml` to validate workflow YAML and enforce SHA-pinned actions.
 - This repository includes `.github/workflows/contract-tests.yml` to run smoke tests against the reusable workflows.
 - This repository includes `.github/workflows/monthly-docs-audit.md` (compiled to `.lock.yml`) to run a monthly agentic documentation audit and publish a findings report issue.
+
+The monthly documentation audit requires a `COPILOT_GITHUB_TOKEN` repository secret containing a valid GitHub Copilot token. Without this secret the audit workflow will fail at the secret validation step. To configure it, go to **Settings → Secrets and variables → Actions** and add `COPILOT_GITHUB_TOKEN` with a token that has GitHub Copilot access.
 
 ## Version governance
 
