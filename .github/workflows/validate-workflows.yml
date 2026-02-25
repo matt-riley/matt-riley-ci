@@ -52,8 +52,14 @@ jobs:
                   bad.append(f"{file}: invalid YAML ({e})")
                   continue
 
+              root = data or {}
+              trigger_block = root.get("on")
+              if trigger_block is None and True in root:
+                  # PyYAML treats the key "on" as boolean True in YAML 1.1 mode.
+                  trigger_block = root.get(True)
+
               if file.name in reusable:
-                  call = ((data or {}).get("on") or {}).get("workflow_call")
+                  call = (trigger_block or {}).get("workflow_call")
                   if not isinstance(call, dict):
                       bad.append(f"{file}: missing on.workflow_call")
                   else:
