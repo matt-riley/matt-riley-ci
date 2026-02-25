@@ -23,14 +23,14 @@ jobs:
       run-race: false
       run-vet: true
       run-fmt: true
-      cancel-in-progress: true
+      cancel-in-progress: false
 
   go-lint-contract:
     uses: ./.github/workflows/go-lint.yml
     with:
       working-directory: fixtures/go
       continue-on-error: false
-      cancel-in-progress: true
+      cancel-in-progress: false
 
   node-contract:
     uses: ./.github/workflows/node-ci.yml
@@ -41,7 +41,7 @@ jobs:
       run-lint: false
       run-build: false
       run-test: true
-      cancel-in-progress: true
+      cancel-in-progress: false
 
   bun-contract:
     uses: ./.github/workflows/bun-ci.yml
@@ -50,4 +50,4 @@ jobs:
       frozen-lockfile: false
       require-lockfile: false
       run-test: true
-      cancel-in-progress: true
+      cancel-in-progress: false
