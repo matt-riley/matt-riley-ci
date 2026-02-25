@@ -22,6 +22,7 @@ jobs:
       working-directory: .
       run-race: false
       run-vet: true
+      run-fmt: false
       timeout-minutes: 15
       test-args: ""
       cancel-in-progress: false

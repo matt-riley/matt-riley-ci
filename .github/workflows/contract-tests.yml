@@ -22,6 +22,7 @@ jobs:
       working-directory: fixtures/go
       run-race: false
       run-vet: true
+      run-fmt: true
       cancel-in-progress: true
 
   go-lint-contract:

@@ -28,6 +28,11 @@ on:
         required: false
         default: true
         type: boolean
+      run-fmt:
+        description: 'Check formatting with gofmt'
+        required: false
+        default: false
+        type: boolean
       timeout-minutes:
         description: 'Job timeout in minutes'
         required: false
@@ -80,6 +85,16 @@ jobs:
           cd ${{ inputs.working-directory }}
           go vet ./...
 
+      - name: Check formatting (gofmt)
+        if: ${{ inputs.run-fmt }}
+        run: |
+          cd ${{ inputs.working-directory }}
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Error: Code is not formatted with gofmt"
+            gofmt -l .
+            exit 1
+          fi
+
       - name: Summary
         if: ${{ always() }}
         run: |
@@ -89,5 +104,6 @@ jobs:
             echo "- working-directory: \`${{ inputs.working-directory }}\`"
             echo "- run-race: \`${{ inputs.run-race }}\`"
             echo "- run-vet: \`${{ inputs.run-vet }}\`"
+            echo "- run-fmt: \`${{ inputs.run-fmt }}\`"
             echo "- test-args: \`${{ inputs.test-args }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
