@@ -151,6 +151,7 @@ jobs:
 
 - This repository includes `.github/workflows/validate-workflows.yml` to validate workflow YAML and enforce SHA-pinned actions.
 - This repository includes `.github/workflows/contract-tests.yml` to run smoke tests against the reusable workflows.
+- This repository includes `.github/workflows/monthly-docs-audit.md` (compiled to `.lock.yml`) to run a monthly agentic documentation audit and publish a findings report issue.
 
 ## Version governance
 
