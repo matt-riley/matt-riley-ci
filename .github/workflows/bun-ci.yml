@@ -13,16 +13,29 @@ on:
         required: false
         default: '.'
         type: string
+      require-lockfile:
+        description: 'Fail if bun.lock or bun.lockb is missing'
+        required: false
+        default: false
+        type: boolean
       run-test:
         description: 'Run bun test'
         required: false
         default: true
+        type: boolean
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
         type: boolean
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
@@ -30,6 +43,13 @@ jobs:
       - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
         with:
           bun-version: ${{ inputs.bun-version }}
+      - name: Validate lockfile
+        if: ${{ inputs.require-lockfile }}
+        run: |
+          if [ ! -f "${{ inputs.working-directory }}/bun.lock" ] && [ ! -f "${{ inputs.working-directory }}/bun.lockb" ]; then
+            echo "Expected bun lockfile not found in ${{ inputs.working-directory }} (bun.lock or bun.lockb)" >&2
+            exit 1
+          fi
       - run: bun install --frozen-lockfile
         working-directory: ${{ inputs.working-directory }}
       - if: ${{ inputs.run-test }}

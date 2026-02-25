@@ -23,6 +23,7 @@ jobs:
       run-vet: true
       timeout-minutes: 15
       test-args: ""
+      cancel-in-progress: false
 ```
 
 ### Node CI
@@ -36,9 +37,11 @@ jobs:
       package-manager: pnpm
       working-directory: .
       cache-dependency-path: pnpm-lock.yaml
+      require-lockfile: false
       run-lint: true
       run-test: true
       run-build: false
+      cancel-in-progress: false
 ```
 
 ### Bun CI
@@ -50,7 +53,9 @@ jobs:
     with:
       bun-version: latest
       working-directory: .
+      require-lockfile: false
       run-test: true
+      cancel-in-progress: false
 ```
 
 ### Release Please
@@ -62,6 +67,7 @@ jobs:
     with:
       config-file: release-please-config.json
       manifest-file: .release-please-manifest.json
+      cancel-in-progress: true
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -69,3 +75,32 @@ jobs:
 Outputs from `release-please.yml`:
 - `release_created`
 - `tag_name`
+
+Example of chaining on release outputs:
+
+```yaml
+jobs:
+  release:
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@v1
+    with:
+      config-file: release-please-config.json
+      manifest-file: .release-please-manifest.json
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Publishing for tag ${{ needs.release.outputs.tag_name }}"
+```
+
+## Token guidance for release-please
+
+- Start with `GITHUB_TOKEN` in most repositories.
+- Use a PAT only when branch protections or org policies block PR/release automation with `GITHUB_TOKEN`.
+
+## Repository self-validation
+
+- This repository includes `.github/workflows/validate-workflows.yml` to validate workflow YAML and enforce SHA-pinned actions.

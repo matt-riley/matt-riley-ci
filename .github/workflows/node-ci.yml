@@ -23,6 +23,11 @@ on:
         required: false
         default: ''
         type: string
+      require-lockfile:
+        description: 'Fail if expected lockfile for package manager is missing'
+        required: false
+        default: false
+        type: boolean
       run-lint:
         description: 'Run lint script'
         required: false
@@ -38,11 +43,19 @@ on:
         required: false
         default: false
         type: boolean
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
@@ -52,12 +65,39 @@ jobs:
         if: ${{ inputs.package-manager == 'pnpm' }}
         uses: pnpm/action-setup@c5ba7f7862a0f64c1b1a05fbac13e0b8e86ba08c # v4
 
+      - name: Validate package manager
+        id: pm
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm)
+              echo "lockfile=${{ inputs.working-directory }}/package-lock.json" >> "$GITHUB_OUTPUT"
+              ;;
+            pnpm)
+              echo "lockfile=${{ inputs.working-directory }}/pnpm-lock.yaml" >> "$GITHUB_OUTPUT"
+              ;;
+            yarn)
+              echo "lockfile=${{ inputs.working-directory }}/yarn.lock" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported package manager: ${{ inputs.package-manager }}" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
-          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path != '' && inputs.cache-dependency-path || steps.pm.outputs.lockfile }}
+
+      - name: Validate lockfile
+        if: ${{ inputs.require-lockfile }}
+        run: |
+          if [ ! -f "${{ steps.pm.outputs.lockfile }}" ]; then
+            echo "Expected lockfile not found: ${{ steps.pm.outputs.lockfile }}" >&2
+            exit 1
+          fi
 
       - name: Install dependencies (npm)
         if: ${{ inputs.package-manager == 'npm' }}

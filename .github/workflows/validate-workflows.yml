@@ -1,0 +1,64 @@
+name: Validate Shared Workflows
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/*.yml"
+      - "README.md"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/*.yml"
+      - "README.md"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524c6047d0480f3fce60a1455c0f1249d11 # v5
+        with:
+          python-version: "3.x"
+
+      - name: Validate workflow YAML and action pinning
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+          import yaml
+
+          uses_sha = re.compile(r".+@[0-9a-f]{40}$")
+          bad = []
+          files = sorted(pathlib.Path(".github/workflows").glob("*.yml"))
+
+          for file in files:
+              try:
+                  data = yaml.safe_load(file.read_text())
+              except Exception as e:
+                  bad.append(f"{file}: invalid YAML ({e})")
+                  continue
+
+              jobs = (data or {}).get("jobs", {})
+              for job_name, job in jobs.items():
+                  for idx, step in enumerate(job.get("steps", []), start=1):
+                      uses = step.get("uses")
+                      if not uses or uses.startswith("./") or uses.startswith("docker://"):
+                          continue
+                      if not uses_sha.match(uses):
+                          bad.append(f"{file}:{job_name}:step{idx}: action is not SHA-pinned -> {uses}")
+
+          if bad:
+              print("\n".join(bad), file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Validated {len(files)} workflow files.")
+          PY

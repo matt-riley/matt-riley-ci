@@ -33,11 +33,19 @@ on:
         required: false
         default: ''
         type: string
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
@@ -59,7 +67,7 @@ jobs:
         if: ${{ inputs.run-race }}
         run: |
           cd ${{ inputs.working-directory }}
-          go test -race ./...
+          go test -race ${{ inputs.test-args }} ./...
 
       - name: Vet
         if: ${{ inputs.run-vet }}
