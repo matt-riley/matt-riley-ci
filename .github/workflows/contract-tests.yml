@@ -19,6 +19,7 @@ jobs:
   go-contract:
     uses: ./.github/workflows/go-ci.yml
     with:
+      go-version-file: fixtures/go/go.mod
       working-directory: fixtures/go
       run-race: false
       run-vet: true
