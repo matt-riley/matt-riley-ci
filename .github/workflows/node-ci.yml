@@ -1,0 +1,61 @@
+name: Node CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node version'
+        required: false
+        default: '22'
+        type: string
+      package-manager:
+        description: 'Package manager (npm, pnpm, yarn)'
+        required: false
+        default: 'pnpm'
+        type: string
+      run-lint:
+        description: 'Run lint script'
+        required: false
+        default: true
+        type: boolean
+      run-test:
+        description: 'Run test script'
+        required: false
+        default: true
+        type: boolean
+      run-build:
+        description: 'Run build script'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        if: inputs.package-manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+
+      - name: Install dependencies
+        run: ${{ inputs.package-manager }} install
+
+      - name: Lint
+        if: inputs.run-lint
+        run: ${{ inputs.package-manager }} run lint --if-present
+
+      - name: Test
+        if: inputs.run-test
+        run: ${{ inputs.package-manager }} run test --if-present
+
+      - name: Build
+        if: inputs.run-build
+        run: ${{ inputs.package-manager }} run build --if-present

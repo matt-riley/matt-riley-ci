@@ -1,0 +1,27 @@
+name: Bun CI
+
+on:
+  workflow_call:
+    inputs:
+      bun-version:
+        description: 'Bun version'
+        required: false
+        default: 'latest'
+        type: string
+      run-test:
+        description: 'Run bun test'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ inputs.bun-version }}
+      - run: bun install --frozen-lockfile
+      - if: ${{ inputs.run-test }}
+        run: bun test
