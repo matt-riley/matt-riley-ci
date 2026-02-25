@@ -27,6 +27,22 @@ jobs:
       cancel-in-progress: false
 ```
 
+### Go Lint
+
+```yaml
+jobs:
+  lint:
+    uses: matt-riley/matt-riley-ci/.github/workflows/go-lint.yml@v1
+    with:
+      runner: ubuntu-latest
+      go-version-file: go.mod
+      working-directory: .
+      golangci-version: v2.2.0
+      golangci-args: --timeout=5m
+      continue-on-error: false
+      cancel-in-progress: false
+```
+
 ### Node CI
 
 ```yaml

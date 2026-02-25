@@ -24,6 +24,13 @@ jobs:
       run-vet: true
       cancel-in-progress: true
 
+  go-lint-contract:
+    uses: ./.github/workflows/go-lint.yml
+    with:
+      working-directory: fixtures/go
+      continue-on-error: false
+      cancel-in-progress: true
+
   node-contract:
     uses: ./.github/workflows/node-ci.yml
     with:

@@ -1,0 +1,84 @@
+name: Go Lint
+
+on:
+  workflow_call:
+    inputs:
+      go-version-file:
+        description: 'Path to go.mod'
+        required: false
+        default: 'go.mod'
+        type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      working-directory:
+        description: 'Directory to run commands in'
+        required: false
+        default: '.'
+        type: string
+      golangci-version:
+        description: 'golangci-lint version'
+        required: false
+        default: 'v2.2.0'
+        type: string
+      golangci-args:
+        description: 'Additional golangci-lint args'
+        required: false
+        default: '--timeout=5m'
+        type: string
+      continue-on-error:
+        description: 'Continue if golangci-lint reports issues'
+        required: false
+        default: false
+        type: boolean
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  lint:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
+        with:
+          version: ${{ inputs.golangci-version }}
+          args: ${{ inputs.golangci-args }}
+          working-directory: ${{ inputs.working-directory }}
+        continue-on-error: ${{ inputs.continue-on-error }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Go Lint summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- golangci-version: \`${{ inputs.golangci-version }}\`"
+            echo "- golangci-args: \`${{ inputs.golangci-args }}\`"
+            echo "- continue-on-error: \`${{ inputs.continue-on-error }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
