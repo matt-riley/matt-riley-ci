@@ -94,6 +94,26 @@ jobs:
       token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### Docker GHCR Publish
+
+```yaml
+jobs:
+  docker:
+    uses: matt-riley/matt-riley-ci/.github/workflows/docker-ghcr-publish.yml@v1
+    with:
+      runner: ubuntu-latest
+      context: .
+      image-name: ghcr.io/owner/repo
+      tag-name: v1.2.3
+      platforms: linux/amd64,linux/arm64
+      push: true
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+- `tag-name` set: publishes semver + latest tags.
+- `tag-name` empty: publishes short SHA tag only.
+
 Outputs from `release-please.yml`:
 - `release_created`
 - `tag_name`
