@@ -41,6 +41,7 @@ jobs:
       golangci-version: v2.2.0
       golangci-args: --timeout=5m
       continue-on-error: false
+      timeout-minutes: 15
       cancel-in-progress: false
 ```
 
@@ -108,11 +109,15 @@ jobs:
       tag-name: v1.2.3
       platforms: linux/amd64,linux/arm64
       push: true
+      cancel-in-progress: false
+      timeout-minutes: 30
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-- `tag-name` set: publishes semver + latest tags.
+> **Note:** `token` is required and must have `packages:write` permission. The default timeout is 30 minutes (vs 15 minutes for other workflows).
+
+- `tag-name` set: publishes raw semver, `major.minor`, `major`, and `latest` tags.
 - `tag-name` empty: publishes short SHA tag only.
 
 Outputs from `release-please.yml`:
