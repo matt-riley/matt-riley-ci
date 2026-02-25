@@ -96,6 +96,65 @@ jobs:
       token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### Go GoReleaser
+
+Runs [GoReleaser](https://goreleaser.com) on tag push. Requires a `.goreleaser.yml` in the repository.
+
+```yaml
+jobs:
+  release:
+    uses: matt-riley/matt-riley-ci/.github/workflows/go-goreleaser.yml@v1
+    with:
+      runner: ubuntu-latest
+      go-version-file: go.mod
+      goreleaser-version: "~> v2"
+      args: release --clean
+      working-directory: .
+      timeout-minutes: 30
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      homebrew-tap-token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+```
+
+> `github-token` is optional and falls back to `github.token`. Only set `homebrew-tap-token` if GoReleaser publishes to a Homebrew tap.
+
+### Go Security
+
+Runs [`govulncheck`](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) to detect known vulnerabilities in Go dependencies. Suitable as a PR check or scheduled weekly scan.
+
+```yaml
+jobs:
+  security:
+    uses: matt-riley/matt-riley-ci/.github/workflows/go-security.yml@v1
+    with:
+      runner: ubuntu-latest
+      go-version-file: go.mod
+      working-directory: .
+      govulncheck-version: latest
+      timeout-minutes: 15
+      cancel-in-progress: false
+```
+
+### Release Please Guard
+
+Repairs stale merged release PRs that still carry the `autorelease: pending` label — a known edge case in `release-please`. Run on a schedule alongside the standard `release-please.yml` workflow.
+
+```yaml
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+jobs:
+  guard:
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-please-guard.yml@v1
+    with:
+      main-branch: main
+      release-please-workflow: release-please.yml
+```
+
+> Tag naming convention: the root component `"."` maps to `v{version}`; any other path maps to `{basename}-v{version}` (e.g. `clients/typescript` → `typescript-client-v1.2.3` is **not** assumed — use the basename convention `typescript-v1.2.3` instead). Adjust your `.goreleaser.yml` tag config to match.
+
 ### Docker GHCR Publish
 
 ```yaml
