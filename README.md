@@ -17,6 +17,7 @@ jobs:
   ci:
     uses: matt-riley/matt-riley-ci/.github/workflows/go-ci.yml@v1
     with:
+      runner: ubuntu-latest
       go-version-file: go.mod
       working-directory: .
       run-race: false
@@ -34,6 +35,7 @@ jobs:
     uses: matt-riley/matt-riley-ci/.github/workflows/node-ci.yml@v1
     with:
       node-version: "22"
+      runner: ubuntu-latest
       package-manager: pnpm
       working-directory: .
       cache-dependency-path: pnpm-lock.yaml
@@ -52,7 +54,9 @@ jobs:
     uses: matt-riley/matt-riley-ci/.github/workflows/bun-ci.yml@v1
     with:
       bun-version: latest
+      runner: ubuntu-latest
       working-directory: .
+      frozen-lockfile: true
       require-lockfile: false
       run-test: true
       cancel-in-progress: false
@@ -65,6 +69,7 @@ jobs:
   release:
     uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@v1
     with:
+      runner: ubuntu-latest
       config-file: release-please-config.json
       manifest-file: .release-please-manifest.json
       cancel-in-progress: true
@@ -104,3 +109,10 @@ jobs:
 ## Repository self-validation
 
 - This repository includes `.github/workflows/validate-workflows.yml` to validate workflow YAML and enforce SHA-pinned actions.
+- This repository includes `.github/workflows/contract-tests.yml` to run smoke tests against the reusable workflows.
+
+## Version governance
+
+- Publish non-breaking updates as `v1.x.y`.
+- Move the floating `v1` tag to the latest compatible `v1.x.y` release after validation.
+- Introduce `v2` only for intentionally breaking input/behavior changes.

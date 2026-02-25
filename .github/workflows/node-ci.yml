@@ -8,6 +8,11 @@ on:
         required: false
         default: '22'
         type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
       package-manager:
         description: 'Package manager (npm, pnpm, yarn)'
         required: false
@@ -51,7 +56,7 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     concurrency:
       group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
@@ -128,3 +133,17 @@ jobs:
         if: ${{ inputs.run-test }}
         run: ${{ inputs.package-manager }} run test --if-present
         working-directory: ${{ inputs.working-directory }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Node CI summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- package-manager: \`${{ inputs.package-manager }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- require-lockfile: \`${{ inputs.require-lockfile }}\`"
+            echo "- run-lint: \`${{ inputs.run-lint }}\`"
+            echo "- run-test: \`${{ inputs.run-test }}\`"
+            echo "- run-build: \`${{ inputs.run-build }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

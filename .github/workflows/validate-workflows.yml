@@ -28,6 +28,9 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Install validator dependencies
+        run: python -m pip install --disable-pip-version-check --quiet pyyaml
+
       - name: Validate workflow YAML and action pinning
         run: |
           python - <<'PY'
@@ -39,6 +42,8 @@ jobs:
           uses_sha = re.compile(r".+@[0-9a-f]{40}$")
           bad = []
           files = sorted(pathlib.Path(".github/workflows").glob("*.yml"))
+          reusable = {"go-ci.yml", "node-ci.yml", "bun-ci.yml", "release-please.yml"}
+          valid_input_types = {"string", "number", "boolean"}
 
           for file in files:
               try:
@@ -46,6 +51,20 @@ jobs:
               except Exception as e:
                   bad.append(f"{file}: invalid YAML ({e})")
                   continue
+
+              if file.name in reusable:
+                  call = ((data or {}).get("on") or {}).get("workflow_call")
+                  if not isinstance(call, dict):
+                      bad.append(f"{file}: missing on.workflow_call")
+                  else:
+                      inputs = call.get("inputs", {})
+                      if not isinstance(inputs, dict):
+                          bad.append(f"{file}: on.workflow_call.inputs must be a mapping")
+                      else:
+                          for name, spec in inputs.items():
+                              typ = (spec or {}).get("type")
+                              if typ not in valid_input_types:
+                                  bad.append(f"{file}: input '{name}' has invalid type '{typ}'")
 
               jobs = (data or {}).get("jobs", {})
               for job_name, job in jobs.items():

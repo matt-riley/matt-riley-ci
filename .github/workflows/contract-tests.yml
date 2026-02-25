@@ -1,0 +1,45 @@
+name: Reusable Workflow Contract Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/*.yml"
+      - "fixtures/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/*.yml"
+      - "fixtures/**"
+
+permissions:
+  contents: read
+
+jobs:
+  go-contract:
+    uses: ./.github/workflows/go-ci.yml
+    with:
+      working-directory: fixtures/go
+      run-race: false
+      run-vet: true
+      cancel-in-progress: true
+
+  node-contract:
+    uses: ./.github/workflows/node-ci.yml
+    with:
+      package-manager: npm
+      working-directory: fixtures/node
+      require-lockfile: true
+      run-lint: false
+      run-build: false
+      run-test: true
+      cancel-in-progress: true
+
+  bun-contract:
+    uses: ./.github/workflows/bun-ci.yml
+    with:
+      working-directory: fixtures/bun
+      frozen-lockfile: false
+      require-lockfile: false
+      run-test: true
+      cancel-in-progress: true

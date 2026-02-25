@@ -8,11 +8,21 @@ on:
         required: false
         default: 'latest'
         type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
       working-directory:
         description: 'Directory to run commands in'
         required: false
         default: '.'
         type: string
+      frozen-lockfile:
+        description: 'Use --frozen-lockfile during install'
+        required: false
+        default: true
+        type: boolean
       require-lockfile:
         description: 'Fail if bun.lock or bun.lockb is missing'
         required: false
@@ -31,7 +41,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     concurrency:
       group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
@@ -50,8 +60,24 @@ jobs:
             echo "Expected bun lockfile not found in ${{ inputs.working-directory }} (bun.lock or bun.lockb)" >&2
             exit 1
           fi
-      - run: bun install --frozen-lockfile
+      - if: ${{ inputs.frozen-lockfile }}
+        run: bun install --frozen-lockfile
+        working-directory: ${{ inputs.working-directory }}
+      - if: ${{ !inputs.frozen-lockfile }}
+        run: bun install
         working-directory: ${{ inputs.working-directory }}
       - if: ${{ inputs.run-test }}
         run: bun test
         working-directory: ${{ inputs.working-directory }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Bun CI summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- frozen-lockfile: \`${{ inputs.frozen-lockfile }}\`"
+            echo "- require-lockfile: \`${{ inputs.require-lockfile }}\`"
+            echo "- run-test: \`${{ inputs.run-test }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

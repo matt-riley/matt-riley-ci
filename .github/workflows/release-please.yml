@@ -8,6 +8,11 @@ on:
         required: false
         default: 'release-please-config.json'
         type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
       manifest-file:
         description: 'Path to release-please manifest'
         required: false
@@ -32,7 +37,7 @@ on:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     concurrency:
       group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
@@ -50,3 +55,15 @@ jobs:
           config-file: ${{ inputs.config-file }}
           manifest-file: ${{ inputs.manifest-file }}
           token: ${{ secrets.token }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Release Please summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- config-file: \`${{ inputs.config-file }}\`"
+            echo "- manifest-file: \`${{ inputs.manifest-file }}\`"
+            echo "- release_created: \`${{ steps.release.outputs.release_created }}\`"
+            echo "- tag_name: \`${{ steps.release.outputs.tag_name }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

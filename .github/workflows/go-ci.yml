@@ -8,6 +8,11 @@ on:
         required: false
         default: 'go.mod'
         type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
       working-directory:
         description: 'Directory to run commands in'
         required: false
@@ -41,7 +46,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     concurrency:
       group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
@@ -74,3 +79,15 @@ jobs:
         run: |
           cd ${{ inputs.working-directory }}
           go vet ./...
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Go CI summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- run-race: \`${{ inputs.run-race }}\`"
+            echo "- run-vet: \`${{ inputs.run-vet }}\`"
+            echo "- test-args: \`${{ inputs.test-args }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
