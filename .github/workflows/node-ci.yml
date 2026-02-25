@@ -13,6 +13,16 @@ on:
         required: false
         default: 'pnpm'
         type: string
+      working-directory:
+        description: 'Directory to run commands in'
+        required: false
+        default: '.'
+        type: string
+      cache-dependency-path:
+        description: 'Dependency file(s) for cache key'
+        required: false
+        default: ''
+        type: string
       run-lint:
         description: 'Run lint script'
         required: false
@@ -26,36 +36,55 @@ on:
       run-build:
         description: 'Run build script'
         required: false
-        default: true
+        default: false
         type: boolean
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install pnpm
-        if: inputs.package-manager == 'pnpm'
-        uses: pnpm/action-setup@v4
+        if: ${{ inputs.package-manager == 'pnpm' }}
+        uses: pnpm/action-setup@c5ba7f7862a0f64c1b1a05fbac13e0b8e86ba08c # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
 
-      - name: Install dependencies
-        run: ${{ inputs.package-manager }} install
+      - name: Install dependencies (npm)
+        if: ${{ inputs.package-manager == 'npm' }}
+        run: npm ci
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Install dependencies (pnpm)
+        if: ${{ inputs.package-manager == 'pnpm' }}
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Install dependencies (yarn)
+        if: ${{ inputs.package-manager == 'yarn' }}
+        run: yarn install --frozen-lockfile
+        working-directory: ${{ inputs.working-directory }}
 
       - name: Lint
-        if: inputs.run-lint
+        if: ${{ inputs.run-lint }}
         run: ${{ inputs.package-manager }} run lint --if-present
-
-      - name: Test
-        if: inputs.run-test
-        run: ${{ inputs.package-manager }} run test --if-present
+        working-directory: ${{ inputs.working-directory }}
 
       - name: Build
-        if: inputs.run-build
+        if: ${{ inputs.run-build }}
         run: ${{ inputs.package-manager }} run build --if-present
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Test
+        if: ${{ inputs.run-test }}
+        run: ${{ inputs.package-manager }} run test --if-present
+        working-directory: ${{ inputs.working-directory }}

@@ -23,16 +23,29 @@ on:
         required: false
         default: true
         type: boolean
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+      test-args:
+        description: 'Extra args passed to go test'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
           go-version-file: ${{ inputs.go-version-file }}
           cache: true
@@ -40,7 +53,7 @@ jobs:
       - name: Test
         run: |
           cd ${{ inputs.working-directory }}
-          go test ./...
+          go test ${{ inputs.test-args }} ./...
 
       - name: Test with race detector
         if: ${{ inputs.run-race }}
