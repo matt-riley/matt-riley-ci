@@ -89,6 +89,7 @@ jobs:
       runner: ubuntu-latest
       config-file: release-please-config.json
       manifest-file: .release-please-manifest.json
+      component-output-key: clients/typescript
       cancel-in-progress: true
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
@@ -117,6 +118,9 @@ jobs:
 Outputs from `release-please.yml`:
 - `release_created`
 - `tag_name`
+- `component_release_created` (for `component-output-key`)
+- `component_tag_name` (for `component-output-key`)
+- `raw_outputs_json` (full release-please output map)
 
 Example of chaining on release outputs:
 

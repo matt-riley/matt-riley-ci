@@ -18,6 +18,11 @@ on:
         required: false
         default: '.release-please-manifest.json'
         type: string
+      component-output-key:
+        description: 'Optional component path for monorepo outputs (for example clients/typescript)'
+        required: false
+        default: ''
+        type: string
       cancel-in-progress:
         description: 'Cancel previous in-progress runs for same ref'
         required: false
@@ -26,7 +31,7 @@ on:
     secrets:
       token:
         description: 'GitHub token'
-        required: true
+        required: false
     outputs:
       release_created:
         description: 'Whether a release was created'
@@ -34,6 +39,15 @@ on:
       tag_name:
         description: 'Created release tag'
         value: ${{ jobs.release-please.outputs.tag_name }}
+      component_release_created:
+        description: 'Whether release was created for component-output-key'
+        value: ${{ jobs.release-please.outputs.component_release_created }}
+      component_tag_name:
+        description: 'Created release tag for component-output-key'
+        value: ${{ jobs.release-please.outputs.component_tag_name }}
+      raw_outputs_json:
+        description: 'All release-please step outputs as JSON'
+        value: ${{ jobs.release-please.outputs.raw_outputs_json }}
 
 jobs:
   release-please:
@@ -44,17 +58,21 @@ jobs:
       cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: write
+      issues: write
       pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      component_release_created: ${{ inputs.component-output-key != '' && steps.release.outputs[format('{0}--release_created', inputs.component-output-key)] || '' }}
+      component_tag_name: ${{ inputs.component-output-key != '' && steps.release.outputs[format('{0}--tag_name', inputs.component-output-key)] || '' }}
+      raw_outputs_json: ${{ toJSON(steps.release.outputs) }}
     steps:
       - id: release
         uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c # v4
         with:
           config-file: ${{ inputs.config-file }}
           manifest-file: ${{ inputs.manifest-file }}
-          token: ${{ secrets.token }}
+          token: ${{ secrets.token || github.token }}
 
       - name: Summary
         if: ${{ always() }}
@@ -66,4 +84,7 @@ jobs:
             echo "- manifest-file: \`${{ inputs.manifest-file }}\`"
             echo "- release_created: \`${{ steps.release.outputs.release_created }}\`"
             echo "- tag_name: \`${{ steps.release.outputs.tag_name }}\`"
+            echo "- component-output-key: \`${{ inputs.component-output-key }}\`"
+            echo "- component_release_created: \`${{ inputs.component-output-key != '' && steps.release.outputs[format('{0}--release_created', inputs.component-output-key)] || '' }}\`"
+            echo "- component_tag_name: \`${{ inputs.component-output-key != '' && steps.release.outputs[format('{0}--tag_name', inputs.component-output-key)] || '' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
