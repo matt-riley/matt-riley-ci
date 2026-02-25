@@ -26,13 +26,16 @@ jobs:
       cancel-in-progress: false
 
   go-lint-contract:
+    needs: go-contract
     uses: ./.github/workflows/go-lint.yml
     with:
+      go-version-file: fixtures/go/go.mod
       working-directory: fixtures/go
       continue-on-error: false
       cancel-in-progress: false
 
   node-contract:
+    needs: go-lint-contract
     uses: ./.github/workflows/node-ci.yml
     with:
       package-manager: npm
@@ -44,6 +47,7 @@ jobs:
       cancel-in-progress: false
 
   bun-contract:
+    needs: node-contract
     uses: ./.github/workflows/bun-ci.yml
     with:
       working-directory: fixtures/bun
