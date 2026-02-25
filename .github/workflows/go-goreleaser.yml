@@ -1,0 +1,85 @@
+name: Go GoReleaser
+
+on:
+  workflow_call:
+    inputs:
+      go-version-file:
+        description: 'Path to go.mod'
+        required: false
+        default: 'go.mod'
+        type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      goreleaser-version:
+        description: 'GoReleaser binary version (e.g. ~> v2)'
+        required: false
+        default: '~> v2'
+        type: string
+      args:
+        description: 'GoReleaser args'
+        required: false
+        default: 'release --clean'
+        type: string
+      working-directory:
+        description: 'Directory containing .goreleaser.yml'
+        required: false
+        default: '.'
+        type: string
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 30
+        type: number
+    secrets:
+      github-token:
+        description: 'GitHub token passed to GoReleaser (falls back to github.token)'
+        required: false
+      homebrew-tap-token:
+        description: 'PAT with repo:write for the Homebrew tap repository'
+        required: false
+
+jobs:
+  goreleaser:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          distribution: goreleaser
+          version: ${{ inputs.goreleaser-version }}
+          args: ${{ inputs.args }}
+          workdir: ${{ inputs.working-directory }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || github.token }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.homebrew-tap-token }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### GoReleaser summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- goreleaser-version: \`${{ inputs.goreleaser-version }}\`"
+            echo "- args: \`${{ inputs.args }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -42,7 +42,7 @@ jobs:
           uses_sha = re.compile(r".+@[0-9a-f]{40}$")
           bad = []
           files = sorted(pathlib.Path(".github/workflows").glob("*.yml"))
-          reusable = {"go-ci.yml", "node-ci.yml", "bun-ci.yml", "release-please.yml"}
+          reusable = {"go-ci.yml", "node-ci.yml", "bun-ci.yml", "release-please.yml", "go-goreleaser.yml", "go-security.yml", "release-please-guard.yml"}
           valid_input_types = {"string", "number", "boolean"}
 
           for file in files:
