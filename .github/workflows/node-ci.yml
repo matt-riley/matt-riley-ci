@@ -173,7 +173,12 @@ jobs:
 
       - name: Lint
         if: ${{ inputs.run-lint }}
-        run: ${{ inputs.package-manager }} run lint --if-present
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm) npm run lint --if-present ;;
+            pnpm) pnpm run --if-present lint ;;
+            yarn) yarn run lint --if-present ;;
+          esac
         working-directory: ${{ inputs.working-directory }}
 
       - name: Export build environment
@@ -189,12 +194,23 @@ jobs:
 
       - name: Build
         if: ${{ inputs.run-build }}
-        run: ${{ inputs.package-manager }} run build --if-present
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm) npm run build --if-present ;;
+            pnpm) pnpm run --if-present build ;;
+            yarn) yarn run build --if-present ;;
+          esac
         working-directory: ${{ inputs.working-directory }}
 
       - name: Test
         if: ${{ inputs.run-test }}
-        run: ${{ inputs.package-manager }} run ${{ inputs.test-script }} --if-present
+        run: |
+          script="${{ inputs.test-script }}"
+          case "${{ inputs.package-manager }}" in
+            npm) npm run "$script" --if-present ;;
+            pnpm) pnpm run --if-present "$script" ;;
+            yarn) yarn run "$script" --if-present ;;
+          esac
         working-directory: ${{ inputs.working-directory }}
 
       - name: Summary
