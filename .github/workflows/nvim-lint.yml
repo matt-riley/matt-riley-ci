@@ -1,0 +1,26 @@
+name: Neovim Lint (luacheck)
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Space-separated paths to lint"
+        required: false
+        default: "lua/ plugin/ tests/"
+        type: string
+      runner:
+        description: "Runner label"
+        required: false
+        default: "ubuntu-latest"
+        type: string
+
+jobs:
+  luacheck:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install luacheck
+        run: sudo apt-get update && sudo apt-get install -y lua-check
+      - name: Run luacheck
+        run: luacheck ${{ inputs.paths }}

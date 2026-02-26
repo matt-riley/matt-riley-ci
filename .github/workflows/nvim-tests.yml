@@ -1,0 +1,30 @@
+name: Neovim Tests (mini.test)
+
+on:
+  workflow_call:
+    inputs:
+      neovim-version:
+        description: "Neovim version to install (apt package)"
+        required: false
+        default: "neovim"
+        type: string
+      runner:
+        description: "Runner label"
+        required: false
+        default: "ubuntu-latest"
+        type: string
+
+jobs:
+  tests:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Neovim
+        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.neovim-version }}
+      - name: Fetch mini.nvim
+        run: git clone --depth 1 https://github.com/echasnovski/mini.nvim "${GITHUB_WORKSPACE}/.ci/mini.nvim"
+      - name: Run tests
+        env:
+          MINI_PATH: ${{ github.workspace }}/.ci/mini.nvim
+        run: nvim --headless -u tests/minimal_init.lua -c "lua MiniTest.run({})" -c "qa"

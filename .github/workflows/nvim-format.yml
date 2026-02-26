@@ -1,0 +1,29 @@
+name: Neovim Format (stylua)
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Space-separated paths to check"
+        required: false
+        default: "lua/ plugin/ tests/"
+        type: string
+      runner:
+        description: "Runner label"
+        required: false
+        default: "ubuntu-latest"
+        type: string
+
+jobs:
+  stylua:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stylua
+        run: |
+          curl -fsSL https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-x86_64.zip -o stylua.zip
+          unzip stylua.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/stylua
+      - name: Check formatting
+        run: stylua --check ${{ inputs.paths }}
