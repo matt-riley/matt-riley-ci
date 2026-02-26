@@ -55,12 +55,18 @@ jobs:
       node-version: "22"
       runner: ubuntu-latest
       package-manager: pnpm
+      pnpm-version: ""
       working-directory: .
       cache-dependency-path: pnpm-lock.yaml
       require-lockfile: false
+      install-command: ""
       run-lint: true
       run-test: true
       run-build: false
+      test-script: test
+      verify-lockfile-clean: false
+      lockfile-path: ""
+      build-env: ""
       cancel-in-progress: false
 ```
 
@@ -164,8 +170,11 @@ jobs:
     with:
       runner: ubuntu-latest
       context: .
+      dockerfile: ""
       image-name: ghcr.io/owner/repo
       tag-name: v1.2.3
+      metadata-tags: ""
+      metadata-flavor: ""
       platforms: linux/amd64,linux/arm64
       push: true
       cancel-in-progress: false
@@ -178,6 +187,25 @@ jobs:
 
 - `tag-name` set: publishes raw semver, `major.minor`, `major`, and `latest` tags.
 - `tag-name` empty: publishes short SHA tag only.
+- `metadata-tags` set: overrides default tag rules (use for custom tag mapping).
+
+### PNPM Lockfile Sync
+
+```yaml
+jobs:
+  sync:
+    if: startsWith(github.head_ref, 'release-please--')
+    uses: matt-riley/matt-riley-ci/.github/workflows/pnpm-lockfile-sync.yml@v1
+    with:
+      working-directory: services/webclient
+      node-version: "24"
+      pnpm-version: "10"
+      lockfile-name: pnpm-lock.yaml
+      install-command: pnpm install --no-frozen-lockfile --lockfile-only
+      commit-message: chore(webclient): sync pnpm lockfile
+    secrets:
+      token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+```
 
 Outputs from `release-please.yml`:
 - `release_created`

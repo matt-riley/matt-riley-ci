@@ -18,6 +18,11 @@ on:
         required: false
         default: 'pnpm'
         type: string
+      pnpm-version:
+        description: 'Pinned pnpm version (only used when package-manager=pnpm)'
+        required: false
+        default: ''
+        type: string
       working-directory:
         description: 'Directory to run commands in'
         required: false
@@ -33,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      install-command:
+        description: 'Override dependency install command. Empty uses package manager default.'
+        required: false
+        default: ''
+        type: string
       run-lint:
         description: 'Run lint script'
         required: false
@@ -48,6 +58,26 @@ on:
         required: false
         default: false
         type: boolean
+      test-script:
+        description: 'Test script name to run'
+        required: false
+        default: 'test'
+        type: string
+      verify-lockfile-clean:
+        description: 'Fail if lockfile has uncommitted changes after install'
+        required: false
+        default: false
+        type: boolean
+      lockfile-path:
+        description: 'Explicit lockfile path for lockfile checks'
+        required: false
+        default: ''
+        type: string
+      build-env:
+        description: 'Build step environment variables as multiline KEY=VALUE'
+        required: false
+        default: ''
+        type: string
       cancel-in-progress:
         description: 'Cancel previous in-progress runs for same ref'
         required: false
@@ -66,9 +96,15 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Install pnpm
-        if: ${{ inputs.package-manager == 'pnpm' }}
+      - name: Install pnpm (default)
+        if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version == '' }}
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+
+      - name: Install pnpm (pinned)
+        if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version != '' }}
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: ${{ inputs.pnpm-version }}
 
       - name: Validate package manager
         id: pm
@@ -99,30 +135,57 @@ jobs:
       - name: Validate lockfile
         if: ${{ inputs.require-lockfile }}
         run: |
-          if [ ! -f "${{ steps.pm.outputs.lockfile }}" ]; then
-            echo "Expected lockfile not found: ${{ steps.pm.outputs.lockfile }}" >&2
+          expected_lockfile="${{ inputs.lockfile-path != '' && inputs.lockfile-path || steps.pm.outputs.lockfile }}"
+          if [ ! -f "$expected_lockfile" ]; then
+            echo "Expected lockfile not found: $expected_lockfile" >&2
             exit 1
           fi
 
+      - name: Install dependencies (custom)
+        if: ${{ inputs.install-command != '' }}
+        run: ${{ inputs.install-command }}
+        working-directory: ${{ inputs.working-directory }}
+
       - name: Install dependencies (npm)
-        if: ${{ inputs.package-manager == 'npm' }}
+        if: ${{ inputs.package-manager == 'npm' && inputs.install-command == '' }}
         run: npm ci
         working-directory: ${{ inputs.working-directory }}
 
       - name: Install dependencies (pnpm)
-        if: ${{ inputs.package-manager == 'pnpm' }}
+        if: ${{ inputs.package-manager == 'pnpm' && inputs.install-command == '' }}
         run: pnpm install --frozen-lockfile
         working-directory: ${{ inputs.working-directory }}
 
       - name: Install dependencies (yarn)
-        if: ${{ inputs.package-manager == 'yarn' }}
+        if: ${{ inputs.package-manager == 'yarn' && inputs.install-command == '' }}
         run: yarn install --frozen-lockfile
         working-directory: ${{ inputs.working-directory }}
+
+      - name: Verify lockfile is unchanged
+        if: ${{ inputs.verify-lockfile-clean }}
+        run: |
+          lockfile="${{ inputs.lockfile-path != '' && inputs.lockfile-path || steps.pm.outputs.lockfile }}"
+          if [ ! -f "$lockfile" ]; then
+            echo "Lockfile not found: $lockfile" >&2
+            exit 1
+          fi
+          git diff --exit-code "$lockfile" || (echo "Lockfile changed after install: $lockfile" >&2 && exit 1)
 
       - name: Lint
         if: ${{ inputs.run-lint }}
         run: ${{ inputs.package-manager }} run lint --if-present
         working-directory: ${{ inputs.working-directory }}
+
+      - name: Export build environment
+        if: ${{ inputs.run-build && inputs.build-env != '' }}
+        run: |
+          while IFS= read -r line || [ -n "$line" ]; do
+            if [ -n "$line" ]; then
+              echo "$line" >> "$GITHUB_ENV"
+            fi
+          done <<'EOF'
+          ${{ inputs.build-env }}
+          EOF
 
       - name: Build
         if: ${{ inputs.run-build }}
@@ -131,7 +194,7 @@ jobs:
 
       - name: Test
         if: ${{ inputs.run-test }}
-        run: ${{ inputs.package-manager }} run test --if-present
+        run: ${{ inputs.package-manager }} run ${{ inputs.test-script }} --if-present
         working-directory: ${{ inputs.working-directory }}
 
       - name: Summary
@@ -141,9 +204,15 @@ jobs:
             echo "### Node CI summary"
             echo "- runner: \`${{ inputs.runner }}\`"
             echo "- package-manager: \`${{ inputs.package-manager }}\`"
+            echo "- pnpm-version: \`${{ inputs.pnpm-version }}\`"
             echo "- working-directory: \`${{ inputs.working-directory }}\`"
             echo "- require-lockfile: \`${{ inputs.require-lockfile }}\`"
+            echo "- install-command override: \`${{ inputs.install-command != '' }}\`"
+            echo "- verify-lockfile-clean: \`${{ inputs.verify-lockfile-clean }}\`"
+            echo "- lockfile-path: \`${{ inputs.lockfile-path }}\`"
             echo "- run-lint: \`${{ inputs.run-lint }}\`"
             echo "- run-test: \`${{ inputs.run-test }}\`"
+            echo "- test-script: \`${{ inputs.test-script }}\`"
             echo "- run-build: \`${{ inputs.run-build }}\`"
+            echo "- build-env provided: \`${{ inputs.build-env != '' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

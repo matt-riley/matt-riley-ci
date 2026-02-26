@@ -1,0 +1,111 @@
+name: PNPM Lockfile Sync
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      working-directory:
+        description: 'Directory containing package.json and lockfile'
+        required: false
+        default: '.'
+        type: string
+      node-version:
+        description: 'Node version'
+        required: false
+        default: '24'
+        type: string
+      pnpm-version:
+        description: 'pnpm version'
+        required: false
+        default: '10'
+        type: string
+      lockfile-name:
+        description: 'Lockfile name to update and commit'
+        required: false
+        default: 'pnpm-lock.yaml'
+        type: string
+      install-command:
+        description: 'Command used to refresh the lockfile'
+        required: false
+        default: 'pnpm install --no-frozen-lockfile --lockfile-only'
+        type: string
+      commit-message:
+        description: 'Commit message for lockfile updates'
+        required: false
+        default: 'chore: sync pnpm lockfile'
+        type: string
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+    secrets:
+      token:
+        description: 'Token with contents:write to push branch updates'
+        required: true
+
+jobs:
+  sync-lockfile:
+    if: ${{ github.head_ref != '' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.head_ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.token }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ format('{0}/{1}', inputs.working-directory, inputs.lockfile-name) }}
+
+      - name: Update lockfile
+        run: ${{ inputs.install-command }}
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Commit and push lockfile changes
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ inputs.lockfile-name }}"
+          git diff --cached --quiet || git commit -m "$COMMIT_MESSAGE"
+          git push origin "HEAD:${HEAD_REF}"
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### PNPM lockfile sync summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- node-version: \`${{ inputs.node-version }}\`"
+            echo "- pnpm-version: \`${{ inputs.pnpm-version }}\`"
+            echo "- lockfile-name: \`${{ inputs.lockfile-name }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

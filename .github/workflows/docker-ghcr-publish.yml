@@ -23,6 +23,21 @@ on:
         required: false
         default: ''
         type: string
+      dockerfile:
+        description: 'Path to Dockerfile (optional)'
+        required: false
+        default: ''
+        type: string
+      metadata-tags:
+        description: 'Custom docker/metadata-action tags rules (multiline). Empty uses defaults.'
+        required: false
+        default: ''
+        type: string
+      metadata-flavor:
+        description: 'Custom docker/metadata-action flavor rules (multiline).'
+        required: false
+        default: ''
+        type: string
       platforms:
         description: 'Build platforms'
         required: false
@@ -84,8 +99,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.token }}
 
-      - name: Extract Docker metadata
-        id: meta
+      - name: Extract Docker metadata (default)
+        if: ${{ inputs.metadata-tags == '' }}
+        id: meta-default
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ steps.image.outputs.name }}
@@ -96,14 +112,37 @@ jobs:
             type=raw,value=latest,enable=${{ inputs.tag-name != '' }}
             type=sha,format=short,enable=${{ inputs.tag-name == '' }}
 
-      - name: Build and push image
+      - name: Extract Docker metadata (custom)
+        if: ${{ inputs.metadata-tags != '' }}
+        id: meta-custom
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: ${{ inputs.metadata-tags }}
+          flavor: ${{ inputs.metadata-flavor }}
+
+      - name: Build and push image (default Dockerfile)
+        if: ${{ inputs.dockerfile == '' }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ inputs.context }}
           platforms: ${{ inputs.platforms }}
           push: ${{ inputs.push }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
+          labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push image (custom Dockerfile)
+        if: ${{ inputs.dockerfile != '' }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
+          labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -114,7 +153,9 @@ jobs:
             echo "### Docker GHCR publish summary"
             echo "- image: \`${{ steps.image.outputs.name }}\`"
             echo "- context: \`${{ inputs.context }}\`"
+            echo "- dockerfile: \`${{ inputs.dockerfile }}\`"
             echo "- platforms: \`${{ inputs.platforms }}\`"
             echo "- tag-name: \`${{ inputs.tag-name }}\`"
+            echo "- custom metadata tags: \`${{ inputs.metadata-tags != '' }}\`"
             echo "- push: \`${{ inputs.push }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

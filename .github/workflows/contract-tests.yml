@@ -47,8 +47,26 @@ jobs:
       run-test: true
       cancel-in-progress: false
 
-  bun-contract:
+  node-contract-extended:
     needs: node-contract
+    uses: ./.github/workflows/node-ci.yml
+    with:
+      package-manager: npm
+      working-directory: fixtures/node
+      require-lockfile: true
+      install-command: npm ci
+      run-lint: false
+      run-build: true
+      run-test: true
+      test-script: test:ci
+      verify-lockfile-clean: true
+      lockfile-path: fixtures/node/package-lock.json
+      build-env: |
+        API_ENDPOINT_URL=https://api.example.com
+      cancel-in-progress: false
+
+  bun-contract:
+    needs: node-contract-extended
     uses: ./.github/workflows/bun-ci.yml
     with:
       working-directory: fixtures/bun
