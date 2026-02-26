@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "test": "node -e \"console.log('node-fixture-ok')\"",
-    "test:ci": "node -e \"console.log('node-fixture-ci-ok')\"",
+    "test:ci": "node -e \"if (process.env.API_ENDPOINT_URL) process.exit(1); console.log('node-fixture-ci-ok')\"",
     "build": "node -e \"if (!process.env.API_ENDPOINT_URL) process.exit(1); console.log(process.env.API_ENDPOINT_URL)\""
   }
 }

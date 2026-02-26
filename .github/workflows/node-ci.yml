@@ -181,20 +181,26 @@ jobs:
           esac
         working-directory: ${{ inputs.working-directory }}
 
-      - name: Export build environment
+      - name: Build
+        if: ${{ inputs.run-build && inputs.build-env == '' }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm) npm run build --if-present ;;
+            pnpm) pnpm run --if-present build ;;
+            yarn) yarn run build --if-present ;;
+          esac
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Build (with custom env)
         if: ${{ inputs.run-build && inputs.build-env != '' }}
         run: |
           while IFS= read -r line || [ -n "$line" ]; do
             if [ -n "$line" ]; then
-              echo "$line" >> "$GITHUB_ENV"
+              export "$line"
             fi
           done <<'EOF'
           ${{ inputs.build-env }}
           EOF
-
-      - name: Build
-        if: ${{ inputs.run-build }}
-        run: |
           case "${{ inputs.package-manager }}" in
             npm) npm run build --if-present ;;
             pnpm) pnpm run --if-present build ;;
