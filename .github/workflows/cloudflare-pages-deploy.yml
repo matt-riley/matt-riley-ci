@@ -1,0 +1,109 @@
+name: Cloudflare Pages Deploy
+
+on:
+  workflow_call:
+    inputs:
+      project-name:
+        description: "Cloudflare Pages project name"
+        required: true
+        type: string
+      deploy-directory:
+        description: "Directory to deploy"
+        required: false
+        default: "dist"
+        type: string
+      node-version:
+        description: "Node.js version"
+        required: false
+        default: "22"
+        type: string
+      package-manager:
+        description: "Package manager (npm, pnpm, yarn)"
+        required: false
+        default: "pnpm"
+        type: string
+      pnpm-version:
+        description: "Pinned pnpm version (only used when package-manager=pnpm)"
+        required: false
+        default: ""
+        type: string
+      working-directory:
+        description: "Directory to run commands in"
+        required: false
+        default: "."
+        type: string
+      runner:
+        description: "Runner label"
+        required: false
+        default: "ubuntu-latest"
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        description: "Cloudflare API token with Pages edit permission"
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        description: "Cloudflare account ID"
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm (default)
+        if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version == '' }}
+        uses: pnpm/action-setup@v4
+
+      - name: Install pnpm (pinned)
+        if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version != '' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+
+      - name: Install dependencies
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm) npm ci ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            yarn) yarn install --frozen-lockfile ;;
+          esac
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Build
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm) npm run build ;;
+            pnpm) pnpm run build ;;
+            yarn) yarn run build ;;
+          esac
+        working-directory: ${{ inputs.working-directory }}
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ${{ inputs.deploy-directory }} --project-name=${{ inputs.project-name }}
+          workingDirectory: ${{ inputs.working-directory }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Cloudflare Pages Deploy summary"
+            echo "- project-name: \`${{ inputs.project-name }}\`"
+            echo "- deploy-directory: \`${{ inputs.deploy-directory }}\`"
+            echo "- package-manager: \`${{ inputs.package-manager }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
