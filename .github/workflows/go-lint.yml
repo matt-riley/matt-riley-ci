@@ -21,7 +21,7 @@ on:
       golangci-version:
         description: 'golangci-lint version'
         required: false
-        default: 'v2.2.0'
+        default: 'v2.10.1'
         type: string
       golangci-args:
         description: 'Additional golangci-lint args'
