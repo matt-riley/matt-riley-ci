@@ -57,7 +57,7 @@ jobs:
       package-manager: pnpm
       pnpm-version: ""
       working-directory: .
-      cache-dependency-path: pnpm-lock.yaml
+      cache-dependency-path: ""
       require-lockfile: false
       install-command: ""
       run-lint: true
@@ -155,6 +155,7 @@ jobs:
   guard:
     uses: matt-riley/matt-riley-ci/.github/workflows/release-please-guard.yml@v1
     with:
+      runner: ubuntu-latest
       main-branch: main
       release-please-workflow: release-please.yml
 ```
@@ -197,12 +198,15 @@ jobs:
     if: startsWith(github.head_ref, 'release-please--')
     uses: matt-riley/matt-riley-ci/.github/workflows/pnpm-lockfile-sync.yml@v1
     with:
+      runner: ubuntu-latest
       working-directory: services/webclient
       node-version: "24"
       pnpm-version: "10"
       lockfile-name: pnpm-lock.yaml
       install-command: pnpm install --no-frozen-lockfile --lockfile-only
       commit-message: chore(webclient): sync pnpm lockfile
+      cancel-in-progress: false
+      timeout-minutes: 15
     secrets:
       token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 ```
