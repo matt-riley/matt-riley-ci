@@ -38,7 +38,7 @@ jobs:
       runner: ubuntu-latest
       go-version-file: go.mod
       working-directory: .
-      golangci-version: v2.2.0
+      golangci-version: v2.10.1
       golangci-args: --timeout=5m
       continue-on-error: false
       timeout-minutes: 15
