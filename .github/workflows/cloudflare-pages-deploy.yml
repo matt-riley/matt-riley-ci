@@ -37,6 +37,11 @@ on:
         required: false
         default: "ubuntu-latest"
         type: string
+      timeout-minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: 15
+        type: number
     secrets:
       CLOUDFLARE_API_TOKEN:
         description: "Cloudflare API token with Pages edit permission"
@@ -48,7 +53,7 @@ on:
 jobs:
   deploy:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
       deployments: write
@@ -103,7 +108,10 @@ jobs:
         run: |
           {
             echo "### Cloudflare Pages Deploy summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
             echo "- project-name: \`${{ inputs.project-name }}\`"
             echo "- deploy-directory: \`${{ inputs.deploy-directory }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
             echo "- package-manager: \`${{ inputs.package-manager }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

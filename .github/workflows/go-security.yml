@@ -19,9 +19,9 @@ on:
         default: '.'
         type: string
       govulncheck-version:
-        description: 'govulncheck module version (e.g. v1.1.4 or latest)'
+        description: 'govulncheck module version (e.g. v1.1.4; set latest to float)'
         required: false
-        default: 'latest'
+        default: 'v1.1.4'
         type: string
       timeout-minutes:
         description: 'Job timeout in minutes'

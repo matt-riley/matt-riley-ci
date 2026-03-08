@@ -13,17 +13,51 @@ on:
         required: false
         default: "ubuntu-latest"
         type: string
+      stylua-version:
+        description: "StyLua version to install"
+        required: false
+        default: "v2.4.0"
+        type: string
+      timeout-minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: 15
+        type: number
+      cancel-in-progress:
+        description: "Cancel previous in-progress runs for same ref"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   stylua:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Install stylua
         run: |
-          curl -fsSL https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-x86_64.zip -o stylua.zip
-          unzip stylua.zip -d /usr/local/bin
-          chmod +x /usr/local/bin/stylua
+          install_dir="$RUNNER_TEMP/stylua-bin"
+          mkdir -p "$install_dir"
+          curl -fsSL "https://github.com/JohnnyMorganz/StyLua/releases/download/${{ inputs.stylua-version }}/stylua-linux-x86_64.zip" -o "$RUNNER_TEMP/stylua.zip"
+          unzip -q "$RUNNER_TEMP/stylua.zip" -d "$install_dir"
+          chmod +x "$install_dir/stylua"
+          echo "$install_dir" >> "$GITHUB_PATH"
       - name: Check formatting
         run: stylua --check ${{ inputs.paths }}
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Neovim Format summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
+            echo "- paths: \`${{ inputs.paths }}\`"
+            echo "- stylua-version: \`${{ inputs.stylua-version }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

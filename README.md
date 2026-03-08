@@ -67,6 +67,7 @@ jobs:
       verify-lockfile-clean: false
       lockfile-path: ""
       build-env: ""
+      timeout-minutes: 15
       cancel-in-progress: false
 ```
 
@@ -82,7 +83,76 @@ jobs:
       working-directory: .
       frozen-lockfile: true
       require-lockfile: false
+      run-lint: false
       run-test: true
+      timeout-minutes: 15
+      cancel-in-progress: false
+```
+
+### Cloudflare Pages Deploy
+
+Builds a Node-based project and deploys it to Cloudflare Pages.
+
+```yaml
+jobs:
+  deploy:
+    uses: matt-riley/matt-riley-ci/.github/workflows/cloudflare-pages-deploy.yml@v1
+    with:
+      project-name: my-pages-project
+      deploy-directory: dist
+      node-version: "22"
+      package-manager: pnpm
+      pnpm-version: ""
+      working-directory: .
+      runner: ubuntu-latest
+      timeout-minutes: 15
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+### Neovim Format
+
+Runs StyLua with a pinned release.
+
+```yaml
+jobs:
+  format:
+    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-format.yml@v1
+    with:
+      paths: "lua/ plugin/ tests/"
+      runner: ubuntu-latest
+      stylua-version: v2.4.0
+      timeout-minutes: 15
+      cancel-in-progress: false
+```
+
+### Neovim Lint
+
+```yaml
+jobs:
+  lint:
+    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-lint.yml@v1
+    with:
+      paths: "lua/ plugin/ tests/"
+      runner: ubuntu-latest
+      timeout-minutes: 15
+      cancel-in-progress: false
+```
+
+### Neovim Tests
+
+Runs plugin tests with a pinned `mini.nvim` checkout.
+
+```yaml
+jobs:
+  test:
+    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-tests.yml@v1
+    with:
+      neovim-version: neovim
+      mini-version: v0.17.0
+      runner: ubuntu-latest
+      timeout-minutes: 15
       cancel-in-progress: false
 ```
 
@@ -136,7 +206,7 @@ jobs:
       runner: ubuntu-latest
       go-version-file: go.mod
       working-directory: .
-      govulncheck-version: latest
+      govulncheck-version: v1.1.4
       timeout-minutes: 15
       cancel-in-progress: false
 ```

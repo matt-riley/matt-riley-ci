@@ -8,23 +8,54 @@ on:
         required: false
         default: "neovim"
         type: string
+      mini-version:
+        description: "mini.nvim tag or branch to install for tests"
+        required: false
+        default: "v0.17.0"
+        type: string
       runner:
         description: "Runner label"
         required: false
         default: "ubuntu-latest"
         type: string
+      timeout-minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: 15
+        type: number
+      cancel-in-progress:
+        description: "Cancel previous in-progress runs for same ref"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   tests:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Install Neovim
         run: sudo apt-get update && sudo apt-get install -y ${{ inputs.neovim-version }}
       - name: Fetch mini.nvim
-        run: git clone --depth 1 https://github.com/echasnovski/mini.nvim "${GITHUB_WORKSPACE}/.ci/mini.nvim"
+        run: git clone --branch "${{ inputs.mini-version }}" --depth 1 https://github.com/echasnovski/mini.nvim "${GITHUB_WORKSPACE}/.ci/mini.nvim"
       - name: Run tests
         env:
           MINI_PATH: ${{ github.workspace }}/.ci/mini.nvim
         run: nvim --headless -u tests/minimal_init.lua -c "lua MiniTest.run({})" -c "qa"
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Neovim Tests summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
+            echo "- neovim-version: \`${{ inputs.neovim-version }}\`"
+            echo "- mini-version: \`${{ inputs.mini-version }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

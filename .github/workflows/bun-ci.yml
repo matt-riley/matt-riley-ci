@@ -28,11 +28,21 @@ on:
         required: false
         default: false
         type: boolean
+      run-lint:
+        description: 'Run bun run lint'
+        required: false
+        default: false
+        type: boolean
       run-test:
         description: 'Run bun test'
         required: false
         default: true
         type: boolean
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
       cancel-in-progress:
         description: 'Cancel previous in-progress runs for same ref'
         required: false
@@ -42,15 +52,17 @@ on:
 jobs:
   test:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     concurrency:
       group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
       cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: oven-sh/setup-bun@ecf28ddc73e819eb6fa29df6b34ef8921c743461 # v2
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@ecf28ddc73e819eb6fa29df6b34ef8921c743461 # v2
         with:
           bun-version: ${{ inputs.bun-version }}
       - name: Validate lockfile
@@ -60,13 +72,20 @@ jobs:
             echo "Expected bun lockfile not found in ${{ inputs.working-directory }} (bun.lock or bun.lockb)" >&2
             exit 1
           fi
-      - if: ${{ inputs.frozen-lockfile }}
+      - name: Install dependencies (frozen lockfile)
+        if: ${{ inputs.frozen-lockfile }}
         run: bun install --frozen-lockfile
         working-directory: ${{ inputs.working-directory }}
-      - if: ${{ !inputs.frozen-lockfile }}
+      - name: Install dependencies
+        if: ${{ !inputs.frozen-lockfile }}
         run: bun install
         working-directory: ${{ inputs.working-directory }}
-      - if: ${{ inputs.run-test }}
+      - name: Lint
+        if: ${{ inputs.run-lint }}
+        run: bun run lint
+        working-directory: ${{ inputs.working-directory }}
+      - name: Test
+        if: ${{ inputs.run-test }}
         run: bun test
         working-directory: ${{ inputs.working-directory }}
 
@@ -76,8 +95,10 @@ jobs:
           {
             echo "### Bun CI summary"
             echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
             echo "- working-directory: \`${{ inputs.working-directory }}\`"
             echo "- frozen-lockfile: \`${{ inputs.frozen-lockfile }}\`"
             echo "- require-lockfile: \`${{ inputs.require-lockfile }}\`"
+            echo "- run-lint: \`${{ inputs.run-lint }}\`"
             echo "- run-test: \`${{ inputs.run-test }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

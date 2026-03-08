@@ -13,10 +13,26 @@ on:
         required: false
         default: "ubuntu-latest"
         type: string
+      timeout-minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: 15
+        type: number
+      cancel-in-progress:
+        description: "Cancel previous in-progress runs for same ref"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   luacheck:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -24,3 +40,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y lua-check
       - name: Run luacheck
         run: luacheck ${{ inputs.paths }}
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Neovim Lint summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
+            echo "- paths: \`${{ inputs.paths }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

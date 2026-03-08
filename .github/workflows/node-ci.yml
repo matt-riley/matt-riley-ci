@@ -78,6 +78,11 @@ on:
         required: false
         default: ''
         type: string
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
       cancel-in-progress:
         description: 'Cancel previous in-progress runs for same ref'
         required: false
@@ -87,14 +92,15 @@ on:
 jobs:
   ci:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     concurrency:
       group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
       cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install pnpm (default)
         if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version == '' }}
@@ -193,14 +199,17 @@ jobs:
 
       - name: Build (with custom env)
         if: ${{ inputs.run-build && inputs.build-env != '' }}
+        env:
+          BUILD_ENV: ${{ inputs.build-env }}
         run: |
+          build_env_file="$RUNNER_TEMP/node-ci-build-env"
+          printf '%s\n' "$BUILD_ENV" > "$build_env_file"
           while IFS= read -r line || [ -n "$line" ]; do
             if [ -n "$line" ]; then
               export "$line"
             fi
-          done <<'EOF'
-          ${{ inputs.build-env }}
-          EOF
+          done < "$build_env_file"
+          rm -f "$build_env_file"
           case "${{ inputs.package-manager }}" in
             npm) npm run build --if-present ;;
             pnpm) pnpm run --if-present build ;;
@@ -225,6 +234,7 @@ jobs:
           {
             echo "### Node CI summary"
             echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
             echo "- package-manager: \`${{ inputs.package-manager }}\`"
             echo "- pnpm-version: \`${{ inputs.pnpm-version }}\`"
             echo "- working-directory: \`${{ inputs.working-directory }}\`"

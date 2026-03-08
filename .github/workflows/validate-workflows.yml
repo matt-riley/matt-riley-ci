@@ -42,7 +42,6 @@ jobs:
           uses_sha = re.compile(r".+@[0-9a-f]{40}$")
           bad = []
           files = sorted(pathlib.Path(".github/workflows").glob("*.yml"))
-          reusable = {"go-ci.yml", "node-ci.yml", "bun-ci.yml", "release-please.yml", "go-goreleaser.yml", "go-security.yml", "release-please-guard.yml", "pnpm-lockfile-sync.yml", "docker-ghcr-publish.yml"}
           valid_input_types = {"string", "number", "boolean"}
 
           for file in files:
@@ -58,8 +57,10 @@ jobs:
                   # PyYAML treats the key "on" as boolean True in YAML 1.1 mode.
                   trigger_block = root.get(True)
 
-              if file.name in reusable:
-                  call = (trigger_block or {}).get("workflow_call")
+              if isinstance(trigger_block, dict) and "workflow_call" in trigger_block:
+                  call = trigger_block.get("workflow_call")
+                  if call is None:
+                      call = {}
                   if not isinstance(call, dict):
                       bad.append(f"{file}: missing on.workflow_call")
                   else:

@@ -36,7 +36,6 @@ jobs:
       cancel-in-progress: false
 
   node-contract:
-    needs: go-lint-contract
     uses: ./.github/workflows/node-ci.yml
     with:
       package-manager: npm
@@ -66,11 +65,11 @@ jobs:
       cancel-in-progress: false
 
   bun-contract:
-    needs: node-contract-extended
     uses: ./.github/workflows/bun-ci.yml
     with:
       working-directory: fixtures/bun
       frozen-lockfile: false
       require-lockfile: false
+      run-lint: true
       run-test: true
       cancel-in-progress: false
