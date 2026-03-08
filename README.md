@@ -26,7 +26,10 @@ jobs:
       timeout-minutes: 15
       test-args: ""
       cancel-in-progress: false
+      concurrency-suffix: ""
 ```
+
+Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
 ### Go Lint
 
@@ -38,7 +41,7 @@ jobs:
       runner: ubuntu-latest
       go-version-file: go.mod
       working-directory: .
-      golangci-version: v2.2.0
+      golangci-version: v2.10.1
       golangci-args: --timeout=5m
       continue-on-error: false
       timeout-minutes: 15
