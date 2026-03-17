@@ -214,27 +214,6 @@ jobs:
       cancel-in-progress: false
 ```
 
-### Release Please Guard
-
-Repairs stale merged release PRs that still carry the `autorelease: pending` label — a known edge case in `release-please`. Run on a schedule alongside the standard `release-please.yml` workflow.
-
-```yaml
-on:
-  schedule:
-    - cron: "17 * * * *"
-  workflow_dispatch:
-
-jobs:
-  guard:
-    uses: matt-riley/matt-riley-ci/.github/workflows/release-please-guard.yml@v1
-    with:
-      runner: ubuntu-latest
-      main-branch: main
-      release-please-workflow: release-please.yml
-```
-
-> Tag naming convention: the root component `"."` maps to `v{version}`; any other path maps to `{basename}-v{version}` (e.g. `clients/typescript` → `typescript-client-v1.2.3` is **not** assumed — use the basename convention `typescript-v1.2.3` instead). Adjust your `.goreleaser.yml` tag config to match.
-
 ### Docker GHCR Publish
 
 ```yaml
