@@ -36,7 +36,7 @@ jobs:
 
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
-Use `run-test: false` for build-only or format-only invocations, `build-command` for an explicit build step, `test-command` when the default `go test ./...` contract is not enough, and `coverage-path` + `coverage-artifact-name` to publish coverage output for downstream jobs such as Codecov uploads. When `test-command` is set, the workflow does not apply `test-args` or `run-race` automatically; include any desired extra args or race flags directly in the custom command.
+Use `run-test: false` for build-only or format-only invocations, `build-command` for an explicit build step, `test-command` when the default `go test ./...` contract is not enough, and `coverage-path` + `coverage-artifact-name` to publish coverage output for downstream jobs such as Codecov uploads. When `test-command` is set, the workflow does not apply `test-args` or `run-race` automatically; include any desired extra args or race flags directly in the custom command. `coverage-path` and `coverage-artifact-name` must be set together; providing only one is treated as an invalid configuration.
 
 ### Go Lint
 

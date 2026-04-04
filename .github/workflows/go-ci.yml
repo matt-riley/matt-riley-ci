@@ -98,17 +98,23 @@ jobs:
           go-version-file: ${{ inputs.go-version-file }}
           cache: true
 
-      - name: Build
-        if: ${{ inputs.build-command != '' }}
-        run: |
-          cd ${{ inputs.working-directory }}
-          ${{ inputs.build-command }}
-
       - name: Validate test inputs
         if: ${{ inputs.run-test && inputs.test-command != '' && (inputs.run-race || inputs.test-args != '') }}
         run: |
           echo "::error title=Invalid Go CI inputs::test-command bypasses run-race and test-args. Include any race or extra test flags directly in test-command, or unset test-command to use the default test runner."
           exit 1
+
+      - name: Validate coverage inputs
+        if: ${{ (inputs.coverage-path == '' && inputs.coverage-artifact-name != '') || (inputs.coverage-path != '' && inputs.coverage-artifact-name == '') }}
+        run: |
+          echo "::error title=Invalid Go CI inputs::coverage-path and coverage-artifact-name must be set together to upload coverage artifacts."
+          exit 1
+
+      - name: Build
+        if: ${{ inputs.build-command != '' }}
+        run: |
+          cd ${{ inputs.working-directory }}
+          ${{ inputs.build-command }}
 
       - name: Test
         if: ${{ inputs.run-test && inputs.test-command == '' && !inputs.run-race }}
