@@ -49,7 +49,7 @@ on:
         default: ''
         type: string
       test-command:
-        description: 'Custom command to run instead of the default go test invocation'
+        description: 'Custom command to run instead of the default go test invocation; bypasses test-args and run-race'
         required: false
         default: ''
         type: string
@@ -103,6 +103,12 @@ jobs:
         run: |
           cd ${{ inputs.working-directory }}
           ${{ inputs.build-command }}
+
+      - name: Validate test inputs
+        if: ${{ inputs.run-test && inputs.test-command != '' && (inputs.run-race || inputs.test-args != '') }}
+        run: |
+          echo "::error title=Invalid Go CI inputs::test-command bypasses run-race and test-args. Include any race or extra test flags directly in test-command, or unset test-command to use the default test runner."
+          exit 1
 
       - name: Test
         if: ${{ inputs.run-test && inputs.test-command == '' && !inputs.run-race }}
