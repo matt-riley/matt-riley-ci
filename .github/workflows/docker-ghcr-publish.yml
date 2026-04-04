@@ -28,6 +28,11 @@ on:
         required: false
         default: ''
         type: string
+      build-args:
+        description: 'Custom build args for docker/build-push-action (multiline)'
+        required: false
+        default: ''
+        type: string
       metadata-tags:
         description: 'Custom docker/metadata-action tags rules (multiline). Empty uses defaults.'
         required: false
@@ -43,10 +48,25 @@ on:
         required: false
         default: 'linux/amd64,linux/arm64'
         type: string
+      checkout-fetch-depth:
+        description: 'Fetch depth for actions/checkout'
+        required: false
+        default: 1
+        type: number
       push:
         description: 'Push image to registry'
         required: false
         default: true
+        type: boolean
+      provenance:
+        description: 'Enable provenance attestation in docker/build-push-action'
+        required: false
+        default: false
+        type: boolean
+      sbom:
+        description: 'Enable SBOM generation in docker/build-push-action'
+        required: false
+        default: false
         type: boolean
       cancel-in-progress:
         description: 'Cancel previous in-progress runs for same ref'
@@ -62,6 +82,19 @@ on:
       token:
         description: 'Token with packages:write'
         required: true
+    outputs:
+      image_name:
+        description: 'Resolved image name'
+        value: ${{ jobs.docker-publish.outputs.image_name }}
+      tags:
+        description: 'Resolved image tags'
+        value: ${{ jobs.docker-publish.outputs.tags }}
+      labels:
+        description: 'Resolved image labels'
+        value: ${{ jobs.docker-publish.outputs.labels }}
+      digest:
+        description: 'Published image digest'
+        value: ${{ jobs.docker-publish.outputs.digest }}
 
 jobs:
   docker-publish:
@@ -73,9 +106,16 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image_name: ${{ steps.image.outputs.name }}
+      tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
+      labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
+      digest: ${{ steps.build-custom.outputs.digest != '' && steps.build-custom.outputs.digest || steps.build-default.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: ${{ inputs.checkout-fetch-depth }}
 
       - name: Resolve image name
         id: image
@@ -123,6 +163,7 @@ jobs:
 
       - name: Build and push image (default Dockerfile)
         if: ${{ inputs.dockerfile == '' }}
+        id: build-default
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: ${{ inputs.context }}
@@ -130,11 +171,15 @@ jobs:
           push: ${{ inputs.push }}
           tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
           labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
+          build-args: ${{ inputs.build-args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: ${{ inputs.provenance }}
+          sbom: ${{ inputs.sbom }}
 
       - name: Build and push image (custom Dockerfile)
         if: ${{ inputs.dockerfile != '' }}
+        id: build-custom
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: ${{ inputs.context }}
@@ -143,8 +188,11 @@ jobs:
           push: ${{ inputs.push }}
           tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
           labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
+          build-args: ${{ inputs.build-args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: ${{ inputs.provenance }}
+          sbom: ${{ inputs.sbom }}
 
       - name: Summary
         if: ${{ always() }}
@@ -155,7 +203,12 @@ jobs:
             echo "- context: \`${{ inputs.context }}\`"
             echo "- dockerfile: \`${{ inputs.dockerfile }}\`"
             echo "- platforms: \`${{ inputs.platforms }}\`"
+            echo "- checkout-fetch-depth: \`${{ inputs.checkout-fetch-depth }}\`"
             echo "- tag-name: \`${{ inputs.tag-name }}\`"
             echo "- custom metadata tags: \`${{ inputs.metadata-tags != '' }}\`"
+            echo "- build args configured: \`${{ inputs.build-args != '' }}\`"
+            echo "- provenance: \`${{ inputs.provenance }}\`"
+            echo "- sbom: \`${{ inputs.sbom }}\`"
             echo "- push: \`${{ inputs.push }}\`"
+            echo "- digest: \`${{ steps.build-custom.outputs.digest != '' && steps.build-custom.outputs.digest || steps.build-default.outputs.digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

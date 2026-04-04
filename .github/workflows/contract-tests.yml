@@ -21,10 +21,34 @@ jobs:
     with:
       go-version-file: fixtures/go/go.mod
       working-directory: fixtures/go
+      concurrency-suffix: smoke
       run-race: false
       run-vet: true
       run-fmt: true
       cancel-in-progress: false
+
+  go-build-contract:
+    uses: ./.github/workflows/go-ci.yml
+    with:
+      go-version-file: fixtures/go/go.mod
+      working-directory: fixtures/go
+      run-test: false
+      run-vet: false
+      build-command: go test -c -o /tmp/workflow-fixture.test .
+      cancel-in-progress: false
+      concurrency-suffix: build
+
+  go-coverage-contract:
+    uses: ./.github/workflows/go-ci.yml
+    with:
+      go-version-file: fixtures/go/go.mod
+      working-directory: fixtures/go
+      run-vet: false
+      test-command: go test -coverprofile=coverage.out ./...
+      coverage-path: coverage.out
+      coverage-artifact-name: go-coverage
+      cancel-in-progress: false
+      concurrency-suffix: coverage
 
   go-lint-contract:
     needs: go-contract
@@ -45,6 +69,7 @@ jobs:
       run-build: false
       run-test: true
       cancel-in-progress: false
+      concurrency-suffix: smoke
 
   node-contract-extended:
     needs: node-contract
@@ -63,6 +88,7 @@ jobs:
       build-env: |
         API_ENDPOINT_URL=https://api.example.com
       cancel-in-progress: false
+      concurrency-suffix: extended
 
   bun-contract:
     uses: ./.github/workflows/bun-ci.yml
