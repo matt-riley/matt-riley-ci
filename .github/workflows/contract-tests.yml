@@ -69,6 +69,7 @@ jobs:
       run-build: false
       run-test: true
       cancel-in-progress: false
+      concurrency-suffix: smoke
 
   node-contract-extended:
     needs: node-contract
@@ -87,6 +88,7 @@ jobs:
       build-env: |
         API_ENDPOINT_URL=https://api.example.com
       cancel-in-progress: false
+      concurrency-suffix: extended
 
   bun-contract:
     uses: ./.github/workflows/bun-ci.yml

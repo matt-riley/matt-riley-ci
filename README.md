@@ -79,7 +79,10 @@ jobs:
       build-env: ""
       timeout-minutes: 15
       cancel-in-progress: false
+      concurrency-suffix: ""
 ```
+
+Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
 ### Bun CI
 
