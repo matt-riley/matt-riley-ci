@@ -18,6 +18,11 @@ on:
         required: false
         default: '.'
         type: string
+      run-test:
+        description: 'Run tests'
+        required: false
+        default: true
+        type: boolean
       run-race:
         description: 'Run tests with -race'
         required: false
@@ -40,6 +45,26 @@ on:
         type: number
       test-args:
         description: 'Extra args passed to go test'
+        required: false
+        default: ''
+        type: string
+      test-command:
+        description: 'Custom command to run instead of the default go test invocation'
+        required: false
+        default: ''
+        type: string
+      build-command:
+        description: 'Optional build command to run before tests'
+        required: false
+        default: ''
+        type: string
+      coverage-path:
+        description: 'Optional coverage file path relative to working-directory to upload as an artifact'
+        required: false
+        default: ''
+        type: string
+      coverage-artifact-name:
+        description: 'Artifact name for uploaded coverage output'
         required: false
         default: ''
         type: string
@@ -73,17 +98,37 @@ jobs:
           go-version-file: ${{ inputs.go-version-file }}
           cache: true
 
+      - name: Build
+        if: ${{ inputs.build-command != '' }}
+        run: |
+          cd ${{ inputs.working-directory }}
+          ${{ inputs.build-command }}
+
       - name: Test
-        if: ${{ !inputs.run-race }}
+        if: ${{ inputs.run-test && inputs.test-command == '' && !inputs.run-race }}
         run: |
           cd ${{ inputs.working-directory }}
           go test ${{ inputs.test-args }} ./...
 
       - name: Test with race detector
-        if: ${{ inputs.run-race }}
+        if: ${{ inputs.run-test && inputs.test-command == '' && inputs.run-race }}
         run: |
           cd ${{ inputs.working-directory }}
           go test -race ${{ inputs.test-args }} ./...
+
+      - name: Test (custom command)
+        if: ${{ inputs.run-test && inputs.test-command != '' }}
+        run: |
+          cd ${{ inputs.working-directory }}
+          ${{ inputs.test-command }}
+
+      - name: Upload coverage artifact
+        if: ${{ inputs.coverage-path != '' && inputs.coverage-artifact-name != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.coverage-artifact-name }}
+          path: ${{ format('{0}/{1}', inputs.working-directory, inputs.coverage-path) }}
+          if-no-files-found: error
 
       - name: Vet
         if: ${{ inputs.run-vet }}
@@ -108,8 +153,12 @@ jobs:
             echo "### Go CI summary"
             echo "- runner: \`${{ inputs.runner }}\`"
             echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- run-test: \`${{ inputs.run-test }}\`"
             echo "- run-race: \`${{ inputs.run-race }}\`"
             echo "- run-vet: \`${{ inputs.run-vet }}\`"
             echo "- run-fmt: \`${{ inputs.run-fmt }}\`"
+            echo "- build-command configured: \`${{ inputs.build-command != '' }}\`"
+            echo "- test-command configured: \`${{ inputs.test-command != '' }}\`"
             echo "- test-args: \`${{ inputs.test-args }}\`"
+            echo "- coverage artifact configured: \`${{ inputs.coverage-path != '' && inputs.coverage-artifact-name != '' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

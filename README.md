@@ -20,16 +20,23 @@ jobs:
       runner: ubuntu-latest
       go-version-file: go.mod
       working-directory: .
+      run-test: true
       run-race: false
       run-vet: true
       run-fmt: false
-      timeout-minutes: 15
       test-args: ""
+      test-command: ""
+      build-command: ""
+      coverage-path: ""
+      coverage-artifact-name: ""
+      timeout-minutes: 15
       cancel-in-progress: false
       concurrency-suffix: ""
 ```
 
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
+
+Use `run-test: false` for build-only or format-only invocations, `build-command` for an explicit build step, `test-command` when the default `go test ./...` contract is not enough, and `coverage-path` + `coverage-artifact-name` to publish coverage output for downstream jobs such as Codecov uploads.
 
 ### Go Lint
 
@@ -226,10 +233,14 @@ jobs:
       dockerfile: ""
       image-name: ghcr.io/owner/repo
       tag-name: v1.2.3
+      build-args: ""
       metadata-tags: ""
       metadata-flavor: ""
       platforms: linux/amd64,linux/arm64
+      checkout-fetch-depth: 1
       push: true
+      provenance: false
+      sbom: false
       cancel-in-progress: false
       timeout-minutes: 30
     secrets:
@@ -241,6 +252,11 @@ jobs:
 - `tag-name` set: publishes raw semver, `major.minor`, `major`, and `latest` tags.
 - `tag-name` empty: publishes short SHA tag only.
 - `metadata-tags` set: overrides default tag rules (use for custom tag mapping).
+- Outputs:
+  - `image_name`
+  - `tags`
+  - `labels`
+  - `digest`
 
 ### PNPM Lockfile Sync
 
