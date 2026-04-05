@@ -185,6 +185,33 @@ jobs:
       token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+Outputs from `release-please.yml`:
+- `release_created`
+- `tag_name`
+- `component_release_created` (for `component-output-key`)
+- `component_tag_name` (for `component-output-key`)
+- `raw_outputs_json` (full release-please output map)
+
+Example of chaining on release outputs:
+
+```yaml
+jobs:
+  release:
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@v1
+    with:
+      config-file: release-please-config.json
+      manifest-file: .release-please-manifest.json
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Publishing for tag ${{ needs.release.outputs.tag_name }}"
+```
+
 ### Go GoReleaser
 
 Runs [GoReleaser](https://goreleaser.com) on tag push. Requires a `.goreleaser.yml` in the repository.
@@ -282,32 +309,7 @@ jobs:
       token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 ```
 
-Outputs from `release-please.yml`:
-- `release_created`
-- `tag_name`
-- `component_release_created` (for `component-output-key`)
-- `component_tag_name` (for `component-output-key`)
-- `raw_outputs_json` (full release-please output map)
-
-Example of chaining on release outputs:
-
-```yaml
-jobs:
-  release:
-    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@v1
-    with:
-      config-file: release-please-config.json
-      manifest-file: .release-please-manifest.json
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
-
-  publish:
-    needs: release
-    if: needs.release.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Publishing for tag ${{ needs.release.outputs.tag_name }}"
-```
+See the Release Please outputs above when chaining on `release_created` or `tag_name` in `if` conditions.
 
 ## Token guidance for release-please
 
