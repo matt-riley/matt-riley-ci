@@ -1,0 +1,120 @@
+name: Request Infra Deploy
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'Catalog app identifier in the infra repo'
+        required: true
+        type: string
+      infra-repo:
+        description: 'Infra repository name or owner/name'
+        required: false
+        default: 'infra'
+        type: string
+    secrets:
+      PRIVATE_KEY:
+        description: 'GitHub App private key matching vars.APP_ID'
+        required: true
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve infra repository
+        id: resolve
+        env:
+          DEFAULT_OWNER: ${{ github.repository_owner }}
+          INPUT_INFRA_REPO: ${{ inputs.infra-repo }}
+        run: |
+          infra_repo="$INPUT_INFRA_REPO"
+
+          case "$infra_repo" in
+            */*)
+              infra_owner="${infra_repo%%/*}"
+              infra_name="${infra_repo##*/}"
+              ;;
+            *)
+              infra_owner="$DEFAULT_OWNER"
+              infra_name="$infra_repo"
+              ;;
+          esac
+
+          if [ -z "$infra_owner" ] || [ -z "$infra_name" ]; then
+            echo "Invalid infra repository: $infra_repo" >&2
+            exit 1
+          fi
+
+          {
+            echo "infra_owner=$infra_owner"
+            echo "infra_name=$infra_name"
+            echo "infra_full_name=$infra_owner/$infra_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate GitHub App configuration
+        env:
+          APP_ID: ${{ vars.APP_ID }}
+        run: |
+          if [ -z "$APP_ID" ]; then
+            echo "Repository variable APP_ID is required." >&2
+            exit 1
+          fi
+
+      - name: Create GitHub App token for infra repo
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ vars.APP_ID }}
+          owner: ${{ steps.resolve.outputs.infra_owner }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          repositories: ${{ steps.resolve.outputs.infra_name }}
+
+      - name: Dispatch infra deploy request
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INFRA_NAME: ${{ steps.resolve.outputs.infra_name }}
+          INFRA_OWNER: ${{ steps.resolve.outputs.infra_owner }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY' | curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${INFRA_OWNER}/${INFRA_NAME}/dispatches" \
+            --data-binary @-
+          import json
+          import os
+          import sys
+
+          payload = {
+              "event_type": "deploy-app",
+              "client_payload": {
+                  "app": os.environ["APP_NAME"],
+                  "app_id": os.environ["APP_NAME"],
+                  "source_repo": os.environ["SOURCE_REPO"],
+                  "source_sha": os.environ["SOURCE_SHA"],
+                  "ref": os.environ["SOURCE_REF"],
+              },
+          }
+
+          sys.stdout.write(json.dumps(payload))
+          PY
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Request infra deploy summary"
+            echo "- app-name: \`${{ inputs.app-name }}\`"
+            echo "- infra-repo: \`${{ steps.resolve.outputs.infra_full_name }}\`"
+            echo "- source-repo: \`${{ github.repository }}\`"
+            echo "- source-sha: \`${{ github.sha }}\`"
+            echo "- ref: \`${{ github.ref }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
