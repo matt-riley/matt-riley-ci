@@ -124,6 +124,23 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
+### Request Infra Deploy
+
+Dispatches `deploy-app` to the infra repository so the centralized infra workflow can build and deploy the app.
+
+```yaml
+jobs:
+  request-deploy:
+    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v1
+    with:
+      app-name: my-app
+      infra-repo: infra
+    secrets:
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+```
+
+The caller repository must define repository variable `APP_ID` and secret `PRIVATE_KEY`. By default, `infra-repo: infra` targets `${{ github.repository_owner }}/infra`; pass `owner/repo` to target a different infra repository explicitly.
+
 ### Neovim Format
 
 Runs StyLua with a pinned release.
