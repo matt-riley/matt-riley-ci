@@ -93,6 +93,10 @@ on:
         required: false
         default: ''
         type: string
+    secrets:
+      node_auth_token:
+        description: 'Optional registry auth token exposed to package-manager commands as NODE_AUTH_TOKEN'
+        required: false
 
 jobs:
   ci:
@@ -142,6 +146,8 @@ jobs:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
           cache-dependency-path: ${{ inputs.cache-dependency-path != '' && inputs.cache-dependency-path || steps.pm.outputs.lockfile }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Validate lockfile
         if: ${{ inputs.require-lockfile }}
@@ -156,21 +162,29 @@ jobs:
         if: ${{ inputs.install-command != '' }}
         run: ${{ inputs.install-command }}
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Install dependencies (npm)
         if: ${{ inputs.package-manager == 'npm' && inputs.install-command == '' }}
         run: npm ci
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Install dependencies (pnpm)
         if: ${{ inputs.package-manager == 'pnpm' && inputs.install-command == '' }}
         run: pnpm install --frozen-lockfile
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Install dependencies (yarn)
         if: ${{ inputs.package-manager == 'yarn' && inputs.install-command == '' }}
         run: yarn install --frozen-lockfile
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Verify lockfile is unchanged
         if: ${{ inputs.verify-lockfile-clean }}
@@ -191,6 +205,8 @@ jobs:
             yarn) yarn run lint --if-present ;;
           esac
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Build
         if: ${{ inputs.run-build && inputs.build-env == '' }}
@@ -201,11 +217,14 @@ jobs:
             yarn) yarn run build --if-present ;;
           esac
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Build (with custom env)
         if: ${{ inputs.run-build && inputs.build-env != '' }}
         env:
           BUILD_ENV: ${{ inputs.build-env }}
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
         run: |
           build_env_file="$RUNNER_TEMP/node-ci-build-env"
           printf '%s\n' "$BUILD_ENV" > "$build_env_file"
@@ -232,6 +251,8 @@ jobs:
             yarn) yarn run "$script" --if-present ;;
           esac
         working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
 
       - name: Summary
         if: ${{ always() }}
