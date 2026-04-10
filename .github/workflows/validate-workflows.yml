@@ -73,10 +73,17 @@ jobs:
                               if typ not in valid_input_types:
                                   bad.append(f"{file}: input '{name}' has invalid type '{typ}'")
 
-              jobs = (data or {}).get("jobs", {})
-              for job_name, job in jobs.items():
-                  for idx, step in enumerate(job.get("steps", []), start=1):
-                      uses = step.get("uses")
+               jobs = (data or {}).get("jobs", {})
+               if file.name == "node-ci.yml":
+                   node_ci = jobs.get("ci", {})
+                   permissions = node_ci.get("permissions", {})
+                   if permissions.get("packages") != "read":
+                       bad.append(
+                           f"{file}: reusable node-ci job must declare permissions.packages=read"
+                       )
+               for job_name, job in jobs.items():
+                   for idx, step in enumerate(job.get("steps", []), start=1):
+                       uses = step.get("uses")
                       if not uses or uses.startswith("./") or uses.startswith("docker://"):
                           continue
                       if not uses_sha.match(uses):
