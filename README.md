@@ -84,6 +84,35 @@ jobs:
 
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
+### Aube CI
+
+```yaml
+jobs:
+  ci:
+    uses: matt-riley/matt-riley-ci/.github/workflows/aube-ci.yml@v1
+    with:
+      node-version: "22"
+      aube-version: latest
+      runner: ubuntu-latest
+      working-directory: .
+      require-lockfile: false
+      install-command: ""
+      run-lint: true
+      run-test: true
+      run-build: false
+      test-script: test
+      verify-lockfile-clean: false
+      lockfile-path: ""
+      build-env: ""
+      timeout-minutes: 15
+      cancel-in-progress: false
+      concurrency-suffix: ""
+```
+
+Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
+
+Aube reads supported lockfiles in place (`aube-lock.yaml`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, and `bun.lock`). If a repository contains more than one supported lockfile, set `lockfile-path` explicitly so the workflow can validate and diff the intended file.
+
 ### Bun CI
 
 ```yaml

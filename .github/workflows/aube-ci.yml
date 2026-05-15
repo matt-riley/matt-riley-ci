@@ -1,0 +1,268 @@
+name: Aube CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node version'
+        required: false
+        default: '22'
+        type: string
+      aube-version:
+        description: 'Aube version'
+        required: false
+        default: 'latest'
+        type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      working-directory:
+        description: 'Directory to run commands in'
+        required: false
+        default: '.'
+        type: string
+      require-lockfile:
+        description: 'Fail if no supported lockfile is present'
+        required: false
+        default: false
+        type: boolean
+      install-command:
+        description: 'Override dependency install command. Empty uses aube ci.'
+        required: false
+        default: ''
+        type: string
+      run-lint:
+        description: 'Run lint script when present'
+        required: false
+        default: true
+        type: boolean
+      run-test:
+        description: 'Run test script when present'
+        required: false
+        default: true
+        type: boolean
+      run-build:
+        description: 'Run build script when present'
+        required: false
+        default: false
+        type: boolean
+      test-script:
+        description: 'Test script name to run'
+        required: false
+        default: 'test'
+        type: string
+      verify-lockfile-clean:
+        description: 'Fail if lockfile has uncommitted changes after install'
+        required: false
+        default: false
+        type: boolean
+      lockfile-path:
+        description: 'Explicit lockfile path for lockfile checks'
+        required: false
+        default: ''
+        type: string
+      build-env:
+        description: 'Build step environment variables as multiline KEY=VALUE'
+        required: false
+        default: ''
+        type: string
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
+      concurrency-suffix:
+        description: 'Optional suffix to distinguish concurrency groups when this reusable workflow is called multiple times in one workflow'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      node_auth_token:
+        description: 'Optional registry auth token exposed to aube commands as NODE_AUTH_TOKEN'
+        required: false
+
+jobs:
+  ci:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Aube
+        uses: endevco/aube-action@f82ca2f6c943dbde1904945d9f0ee1a0faf8e945 # v1
+        with:
+          version: ${{ inputs.aube-version }}
+          node-version: ${{ inputs.node-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Resolve lockfile
+        id: lockfile
+        run: |
+          set -euo pipefail
+
+          lockfile=''
+          if [ -n "${{ inputs.lockfile-path }}" ]; then
+            lockfile="${{ inputs.lockfile-path }}"
+          else
+            candidates=(
+              "${{ inputs.working-directory }}/aube-lock.yaml"
+              "${{ inputs.working-directory }}/package-lock.json"
+              "${{ inputs.working-directory }}/npm-shrinkwrap.json"
+              "${{ inputs.working-directory }}/pnpm-lock.yaml"
+              "${{ inputs.working-directory }}/yarn.lock"
+              "${{ inputs.working-directory }}/bun.lock"
+            )
+            matches=()
+            for candidate in "${candidates[@]}"; do
+              if [ -f "$candidate" ]; then
+                matches+=("$candidate")
+              fi
+            done
+
+            if [ "${#matches[@]}" -gt 1 ]; then
+              echo 'Multiple supported lockfiles found. Set lockfile-path explicitly:' >&2
+              printf ' - %s\n' "${matches[@]}" >&2
+              exit 1
+            fi
+
+            if [ "${#matches[@]}" -eq 1 ]; then
+              lockfile="${matches[0]}"
+            fi
+          fi
+
+          echo "lockfile=$lockfile" >> "$GITHUB_OUTPUT"
+
+      - name: Validate lockfile
+        if: ${{ inputs.require-lockfile }}
+        run: |
+          expected_lockfile="${{ steps.lockfile.outputs.lockfile }}"
+          if [ -z "$expected_lockfile" ] || [ ! -f "$expected_lockfile" ]; then
+            echo "Expected supported lockfile not found. Set lockfile-path explicitly if needed." >&2
+            exit 1
+          fi
+
+      - name: Install dependencies (custom)
+        if: ${{ inputs.install-command != '' }}
+        run: ${{ inputs.install-command }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+
+      - name: Install dependencies (aube ci)
+        if: ${{ inputs.install-command == '' }}
+        run: aube ci
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+
+      - name: Verify lockfile is unchanged
+        if: ${{ inputs.verify-lockfile-clean }}
+        run: |
+          lockfile="${{ steps.lockfile.outputs.lockfile }}"
+          if [ -z "$lockfile" ]; then
+            echo 'Lockfile could not be resolved. Set lockfile-path explicitly.' >&2
+            exit 1
+          fi
+          if [ ! -f "$lockfile" ]; then
+            echo "Lockfile not found: $lockfile" >&2
+            exit 1
+          fi
+          git diff --exit-code "$lockfile" || (echo "Lockfile changed after install: $lockfile" >&2 && exit 1)
+
+      - name: Lint
+        if: ${{ inputs.run-lint }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          SCRIPT_NAME: lint
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+        run: |
+          if node -e "const scripts=require('./package.json').scripts||{}; process.exit(Object.prototype.hasOwnProperty.call(scripts, process.env.SCRIPT_NAME) ? 0 : 1)"; then
+            aube run "$SCRIPT_NAME"
+          else
+            echo "No $SCRIPT_NAME script found in package.json, skipping"
+          fi
+
+      - name: Build
+        if: ${{ inputs.run-build && inputs.build-env == '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          SCRIPT_NAME: build
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+        run: |
+          if node -e "const scripts=require('./package.json').scripts||{}; process.exit(Object.prototype.hasOwnProperty.call(scripts, process.env.SCRIPT_NAME) ? 0 : 1)"; then
+            aube run "$SCRIPT_NAME"
+          else
+            echo "No $SCRIPT_NAME script found in package.json, skipping"
+          fi
+
+      - name: Build (with custom env)
+        if: ${{ inputs.run-build && inputs.build-env != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          BUILD_ENV: ${{ inputs.build-env }}
+          SCRIPT_NAME: build
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+        run: |
+          build_env_file="$RUNNER_TEMP/aube-ci-build-env"
+          printf '%s\n' "$BUILD_ENV" > "$build_env_file"
+          while IFS= read -r line || [ -n "$line" ]; do
+            if [ -n "$line" ]; then
+              export "$line"
+            fi
+          done < "$build_env_file"
+          rm -f "$build_env_file"
+
+          if node -e "const scripts=require('./package.json').scripts||{}; process.exit(Object.prototype.hasOwnProperty.call(scripts, process.env.SCRIPT_NAME) ? 0 : 1)"; then
+            aube run "$SCRIPT_NAME"
+          else
+            echo "No $SCRIPT_NAME script found in package.json, skipping"
+          fi
+
+      - name: Test
+        if: ${{ inputs.run-test }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          SCRIPT_NAME: ${{ inputs.test-script }}
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+        run: |
+          if node -e "const scripts=require('./package.json').scripts||{}; process.exit(Object.prototype.hasOwnProperty.call(scripts, process.env.SCRIPT_NAME) ? 0 : 1)"; then
+            aube run "$SCRIPT_NAME"
+          else
+            echo "No $SCRIPT_NAME script found in package.json, skipping"
+          fi
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Aube CI summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
+            echo "- node-version: \`${{ inputs.node-version }}\`"
+            echo "- aube-version: \`${{ inputs.aube-version }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- require-lockfile: \`${{ inputs.require-lockfile }}\`"
+            echo "- install-command override: \`${{ inputs.install-command != '' }}\`"
+            echo "- verify-lockfile-clean: \`${{ inputs.verify-lockfile-clean }}\`"
+            echo "- lockfile-path: \`${{ inputs.lockfile-path }}\`"
+            echo "- resolved-lockfile: \`${{ steps.lockfile.outputs.lockfile }}\`"
+            echo "- run-lint: \`${{ inputs.run-lint }}\`"
+            echo "- run-test: \`${{ inputs.run-test }}\`"
+            echo "- test-script: \`${{ inputs.test-script }}\`"
+            echo "- run-build: \`${{ inputs.run-build }}\`"
+            echo "- build-env provided: \`${{ inputs.build-env != '' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

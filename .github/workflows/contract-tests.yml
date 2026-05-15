@@ -91,6 +91,35 @@ jobs:
       cancel-in-progress: false
       concurrency-suffix: extended
 
+  aube-contract:
+    uses: ./.github/workflows/aube-ci.yml
+    with:
+      working-directory: fixtures/node
+      require-lockfile: true
+      run-lint: false
+      run-build: false
+      run-test: true
+      cancel-in-progress: false
+      concurrency-suffix: aube-smoke
+
+  aube-contract-extended:
+    needs: aube-contract
+    uses: ./.github/workflows/aube-ci.yml
+    with:
+      working-directory: fixtures/node
+      require-lockfile: true
+      install-command: aube ci
+      run-lint: false
+      run-build: true
+      run-test: true
+      test-script: test:ci
+      verify-lockfile-clean: true
+      lockfile-path: fixtures/node/package-lock.json
+      build-env: |
+        API_ENDPOINT_URL=https://api.example.com
+      cancel-in-progress: false
+      concurrency-suffix: aube-extended
+
   bun-contract:
     uses: ./.github/workflows/bun-ci.yml
     with:
