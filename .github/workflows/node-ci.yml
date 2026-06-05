@@ -48,6 +48,16 @@ on:
         required: false
         default: true
         type: boolean
+      run-fallow:
+        description: 'Run fallow audit'
+        required: false
+        default: true
+        type: boolean
+      run-knip:
+        description: 'Run knip check'
+        required: false
+        default: true
+        type: boolean
       run-test:
         description: 'Run test script'
         required: false
@@ -197,6 +207,20 @@ jobs:
           fi
           git diff --exit-code "$lockfile" || (echo "Lockfile changed after install: $lockfile" >&2 && exit 1)
 
+      - name: Fallow
+        if: ${{ inputs.run-fallow }}
+        run: npx --no-install fallow --ci
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+
+      - name: Knip
+        if: ${{ inputs.run-knip }}
+        run: npx --no-install knip --no-progress
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
+
       - name: Lint
         if: ${{ inputs.run-lint }}
         run: |
@@ -269,6 +293,8 @@ jobs:
             echo "- install-command override: \`${{ inputs.install-command != '' }}\`"
             echo "- verify-lockfile-clean: \`${{ inputs.verify-lockfile-clean }}\`"
             echo "- lockfile-path: \`${{ inputs.lockfile-path }}\`"
+            echo "- run-fallow: \`${{ inputs.run-fallow }}\`"
+            echo "- run-knip: \`${{ inputs.run-knip }}\`"
             echo "- run-lint: \`${{ inputs.run-lint }}\`"
             echo "- run-test: \`${{ inputs.run-test }}\`"
             echo "- test-script: \`${{ inputs.test-script }}\`"
