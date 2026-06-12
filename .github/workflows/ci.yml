@@ -3,9 +3,45 @@ name: Universal CI
 on:
   workflow_call:
     inputs:
-      tasks:
-        description: 'Comma-separated list of mise tasks to run (e.g., "go-test,go-vet,go-fmt")'
-        required: true
+      install:
+        description: 'Run the mise install task'
+        required: false
+        default: false
+        type: boolean
+      lint:
+        description: 'Run the mise lint task'
+        required: false
+        default: false
+        type: boolean
+      build:
+        description: 'Run the mise build task'
+        required: false
+        default: false
+        type: boolean
+      test:
+        description: 'Run the mise test task'
+        required: false
+        default: false
+        type: boolean
+      vet:
+        description: 'Run the mise vet task'
+        required: false
+        default: false
+        type: boolean
+      fmt:
+        description: 'Run the mise fmt task'
+        required: false
+        default: false
+        type: boolean
+      task-prefix:
+        description: 'Optional prefix added before standard task names (for example "go-" -> "go-test")'
+        required: false
+        default: ''
+        type: string
+      task-env:
+        description: 'Optional multiline KEY=VALUE entries exported before running mise tasks'
+        required: false
+        default: ''
         type: string
       runner:
         description: 'Runner label'
@@ -38,25 +74,55 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      MISE_EXPERIMENTAL: true
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
 
-      - name: Run tasks
-        run: |
-          tasks="${{ inputs.tasks }}"
-          IFS=',' read -ra task_array <<< "$tasks"
-          for task in "${task_array[@]}"; do
-            task="${task// /}"  # trim whitespace
-            if [ -z "$task" ]; then continue; fi
-            echo "### Running: $task"
-            mise run "$task" || exit 1
-          done
+      - name: Install configured tools
+        run: mise install
+
+      - name: Export task environment
+        if: ${{ inputs.task-env != '' }}
         env:
-          MISE_EXPERIMENTAL: true
+          TASK_ENV: ${{ inputs.task-env }}
+        run: |
+          task_env_file="$RUNNER_TEMP/universal-ci-task-env"
+          printf '%s\n' "$TASK_ENV" > "$task_env_file"
+          while IFS= read -r line || [ -n "$line" ]; do
+            if [ -n "$line" ]; then
+              printf '%s\n' "$line" >> "$GITHUB_ENV"
+            fi
+          done < "$task_env_file"
+          rm -f "$task_env_file"
+
+      - name: Run install task
+        if: ${{ inputs.install }}
+        run: mise run "${{ inputs.task-prefix }}install"
+
+      - name: Run lint task
+        if: ${{ inputs.lint }}
+        run: mise run "${{ inputs.task-prefix }}lint"
+
+      - name: Run build task
+        if: ${{ inputs.build }}
+        run: mise run "${{ inputs.task-prefix }}build"
+
+      - name: Run test task
+        if: ${{ inputs.test }}
+        run: mise run "${{ inputs.task-prefix }}test"
+
+      - name: Run vet task
+        if: ${{ inputs.vet }}
+        run: mise run "${{ inputs.task-prefix }}vet"
+
+      - name: Run fmt task
+        if: ${{ inputs.fmt }}
+        run: mise run "${{ inputs.task-prefix }}fmt"
 
       - name: Summary
         if: ${{ always() }}
@@ -65,5 +131,12 @@ jobs:
             echo "### Universal CI summary"
             echo "- runner: \`${{ inputs.runner }}\`"
             echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- tasks: \`${{ inputs.tasks }}\`"
+            echo "- task-prefix: \`${{ inputs.task-prefix }}\`"
+            echo "- task-env provided: \`${{ inputs.task-env != '' }}\`"
+            echo "- install: \`${{ inputs.install }}\`"
+            echo "- lint: \`${{ inputs.lint }}\`"
+            echo "- build: \`${{ inputs.build }}\`"
+            echo "- test: \`${{ inputs.test }}\`"
+            echo "- vet: \`${{ inputs.vet }}\`"
+            echo "- fmt: \`${{ inputs.fmt }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

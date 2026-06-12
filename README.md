@@ -10,6 +10,33 @@ Reusable GitHub Actions workflows for Matt Riley repositories.
 
 ## Workflows
 
+### Universal CI
+
+Runs standard `mise` tasks without making callers provide a task list.
+
+```yaml
+jobs:
+  ci:
+    uses: matt-riley/matt-riley-ci/.github/workflows/ci.yml@v1
+    with:
+      install: true
+      lint: true
+      build: false
+      test: true
+      vet: false
+      fmt: false
+      task-prefix: ""
+      task-env: ""
+      runner: ubuntu-latest
+      timeout-minutes: 15
+      cancel-in-progress: false
+      concurrency-suffix: ""
+```
+
+This workflow runs `mise run install`, `lint`, `build`, `test`, `vet`, and `fmt` when the matching boolean input is `true`. Use `task-prefix` only when a repository namespaces tasks, for example `task-prefix: "go-"` to run `go-test`, `go-vet`, and `go-fmt`. Use `task-env` for multiline task configuration such as working directories or command overrides. Repositories should declare any required runtimes or tools through `mise.toml` or `.tool-versions` so the workflow can provision them consistently.
+
+Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
+
 ### Go CI
 
 ```yaml

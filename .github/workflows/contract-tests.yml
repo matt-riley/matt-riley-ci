@@ -20,70 +20,95 @@ jobs:
   go-contract:
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "go-test,go-vet,go-fmt"
+      test: true
+      vet: true
+      fmt: true
+      task-prefix: "go-"
+      task-env: |
+        MISE_GO_WORKING_DIR=fixtures/go
       concurrency-suffix: go-smoke
       cancel-in-progress: false
-    env:
-      MISE_GO_WORKING_DIR: fixtures/go
 
   go-build-contract:
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "go-build"
+      build: true
+      task-prefix: "go-"
+      task-env: |
+        MISE_GO_WORKING_DIR=fixtures/go
+        MISE_GO_BUILD_COMMAND=go test -c -o /tmp/workflow-fixture.test .
       concurrency-suffix: go-build
       cancel-in-progress: false
-    env:
-      MISE_GO_WORKING_DIR: fixtures/go
-      MISE_GO_BUILD_COMMAND: "go test -c -o /tmp/workflow-fixture.test ."
 
   go-coverage-contract:
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "go-test"
+      test: true
+      task-prefix: "go-"
+      task-env: |
+        MISE_GO_WORKING_DIR=fixtures/go
+        MISE_GO_TEST_COMMAND=go test -coverprofile=coverage.out ./...
       concurrency-suffix: go-coverage
       cancel-in-progress: false
-    env:
-      MISE_GO_WORKING_DIR: fixtures/go
-      MISE_GO_TEST_COMMAND: "go test -coverprofile=coverage.out ./..."
 
   go-lint-contract:
     needs: go-contract
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "go-lint"
+      lint: true
+      task-prefix: "go-"
+      task-env: |
+        MISE_GO_WORKING_DIR=fixtures/go
       concurrency-suffix: go-lint
       cancel-in-progress: false
-    env:
-      MISE_GO_WORKING_DIR: fixtures/go
 
   node-contract:
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "node-install,node-test"
+      install: true
+      test: true
+      task-prefix: "node-"
+      task-env: |
+        MISE_NODE_WORKING_DIR=fixtures/node
+        MISE_NODE_PACKAGE_MANAGER=npm
       concurrency-suffix: node-smoke
       cancel-in-progress: false
-    env:
-      MISE_NODE_WORKING_DIR: fixtures/node
-      MISE_NODE_PACKAGE_MANAGER: npm
 
-  node-contract-extended:
-    needs: node-contract
+  node-build-contract:
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "node-install,node-build,node-test"
-      concurrency-suffix: node-extended
+      install: true
+      build: true
+      task-prefix: "node-"
+      task-env: |
+        MISE_NODE_WORKING_DIR=fixtures/node
+        MISE_NODE_PACKAGE_MANAGER=npm
+        API_ENDPOINT_URL=https://example.test
+      concurrency-suffix: node-build
       cancel-in-progress: false
-    env:
-      MISE_NODE_WORKING_DIR: fixtures/node
-      MISE_NODE_PACKAGE_MANAGER: npm
-      MISE_NODE_TEST_SCRIPT: test:ci
+
+  node-custom-test-contract:
+    uses: ./.github/workflows/ci.yml
+    with:
+      install: true
+      test: true
+      task-prefix: "node-"
+      task-env: |
+        MISE_NODE_WORKING_DIR=fixtures/node
+        MISE_NODE_PACKAGE_MANAGER=npm
+        MISE_NODE_TEST_SCRIPT=test:ci
+      concurrency-suffix: node-custom-test
+      cancel-in-progress: false
 
   bun-contract:
     uses: ./.github/workflows/ci.yml
     with:
-      tasks: "bun-install,bun-lint,bun-test"
+      install: true
+      lint: true
+      test: true
+      task-prefix: "bun-"
+      task-env: |
+        MISE_BUN_WORKING_DIR=fixtures/bun
+        MISE_BUN_FROZEN_LOCKFILE=false
       concurrency-suffix: bun-smoke
       cancel-in-progress: false
-    env:
-      MISE_BUN_WORKING_DIR: fixtures/bun
-      MISE_BUN_FROZEN_LOCKFILE: "false"
