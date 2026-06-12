@@ -1,0 +1,74 @@
+name: Repository Release Please
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/release-please.yml
+    with:
+      config-file: release-please-config.json
+      manifest-file: .release-please-manifest.json
+      cancel-in-progress: true
+
+  move-major-tag:
+    name: Move floating major tag
+    needs: release
+    if: ${{ needs.release.outputs.release_created == 'true' && needs.release.outputs.tag_name != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Move major tag
+        env:
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          case "$TAG_NAME" in
+            v*.*.*) major_tag="${TAG_NAME%%.*}" ;;
+            *)
+              echo "Unexpected release tag: $TAG_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch --force --tags origin
+          target_sha="$(git rev-list -n 1 "refs/tags/$TAG_NAME")"
+          current_sha="$(git ls-remote --tags origin "refs/tags/$major_tag" | awk '{print $1}')"
+
+          if [ -z "$target_sha" ]; then
+            echo "Could not resolve release tag $TAG_NAME" >&2
+            exit 1
+          fi
+
+          if [ "$current_sha" = "$target_sha" ]; then
+            echo "$major_tag already points at $TAG_NAME"
+            exit 0
+          fi
+
+          git tag -f "$major_tag" "$target_sha"
+          git push origin "refs/tags/$major_tag" --force
+
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+        run: |
+          {
+            echo "### Floating major tag summary"
+            echo "- release tag: \`$TAG_NAME\`"
+            echo "- floating tag: \`${TAG_NAME%%.*}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
