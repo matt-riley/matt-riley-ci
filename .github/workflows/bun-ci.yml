@@ -72,22 +72,29 @@ jobs:
             echo "Expected bun lockfile not found in ${{ inputs.working-directory }} (bun.lock or bun.lockb)" >&2
             exit 1
           fi
-      - name: Install dependencies (frozen lockfile)
-        if: ${{ inputs.frozen-lockfile }}
-        run: bun install --frozen-lockfile
-        working-directory: ${{ inputs.working-directory }}
+      - name: Install mise
+        uses: jdx/mise-action@v3
       - name: Install dependencies
-        if: ${{ !inputs.frozen-lockfile }}
-        run: bun install
-        working-directory: ${{ inputs.working-directory }}
+        run: |
+          export MISE_BUN_WORKING_DIR="${{ inputs.working-directory }}"
+          export MISE_BUN_FROZEN_LOCKFILE="${{ inputs.frozen-lockfile }}"
+          mise run bun-install
+        env:
+          MISE_EXPERIMENTAL: true
       - name: Lint
         if: ${{ inputs.run-lint }}
-        run: bun run lint
-        working-directory: ${{ inputs.working-directory }}
+        run: |
+          export MISE_BUN_WORKING_DIR="${{ inputs.working-directory }}"
+          mise run bun-lint
+        env:
+          MISE_EXPERIMENTAL: true
       - name: Test
         if: ${{ inputs.run-test }}
-        run: bun test
-        working-directory: ${{ inputs.working-directory }}
+        run: |
+          export MISE_BUN_WORKING_DIR="${{ inputs.working-directory }}"
+          mise run bun-test
+        env:
+          MISE_EXPERIMENTAL: true
 
       - name: Summary
         if: ${{ always() }}
@@ -102,3 +109,4 @@ jobs:
             echo "- run-lint: \`${{ inputs.run-lint }}\`"
             echo "- run-test: \`${{ inputs.run-test }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+

@@ -110,29 +110,28 @@ jobs:
           echo "::error title=Invalid Go CI inputs::coverage-path and coverage-artifact-name must be set together to upload coverage artifacts."
           exit 1
 
+      - name: Install mise
+        uses: jdx/mise-action@v3
+
       - name: Build
         if: ${{ inputs.build-command != '' }}
         run: |
-          cd ${{ inputs.working-directory }}
-          ${{ inputs.build-command }}
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          export MISE_GO_BUILD_COMMAND="${{ inputs.build-command }}"
+          mise run go-build
+        env:
+          MISE_EXPERIMENTAL: true
 
       - name: Test
-        if: ${{ inputs.run-test && inputs.test-command == '' && !inputs.run-race }}
+        if: ${{ inputs.run-test }}
         run: |
-          cd ${{ inputs.working-directory }}
-          go test ${{ inputs.test-args }} ./...
-
-      - name: Test with race detector
-        if: ${{ inputs.run-test && inputs.test-command == '' && inputs.run-race }}
-        run: |
-          cd ${{ inputs.working-directory }}
-          go test -race ${{ inputs.test-args }} ./...
-
-      - name: Test (custom command)
-        if: ${{ inputs.run-test && inputs.test-command != '' }}
-        run: |
-          cd ${{ inputs.working-directory }}
-          ${{ inputs.test-command }}
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          export MISE_GO_RUN_RACE="${{ inputs.run-race }}"
+          export MISE_GO_TEST_ARGS="${{ inputs.test-args }}"
+          export MISE_GO_TEST_COMMAND="${{ inputs.test-command }}"
+          mise run go-test
+        env:
+          MISE_EXPERIMENTAL: true
 
       - name: Upload coverage artifact
         if: ${{ inputs.coverage-path != '' && inputs.coverage-artifact-name != '' }}
@@ -145,18 +144,18 @@ jobs:
       - name: Vet
         if: ${{ inputs.run-vet }}
         run: |
-          cd ${{ inputs.working-directory }}
-          go vet ./...
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          mise run go-vet
+        env:
+          MISE_EXPERIMENTAL: true
 
       - name: Check formatting (gofmt)
         if: ${{ inputs.run-fmt }}
         run: |
-          cd ${{ inputs.working-directory }}
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "Error: Code is not formatted with gofmt"
-            gofmt -l .
-            exit 1
-          fi
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          mise run go-fmt
+        env:
+          MISE_EXPERIMENTAL: true
 
       - name: Summary
         if: ${{ always() }}
@@ -174,3 +173,4 @@ jobs:
             echo "- test-args: \`${{ inputs.test-args }}\`"
             echo "- coverage artifact configured: \`${{ inputs.coverage-path != '' && inputs.coverage-artifact-name != '' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+

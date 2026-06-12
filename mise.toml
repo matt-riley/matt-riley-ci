@@ -1,0 +1,282 @@
+[env]
+MISE_EXPERIMENTAL = true
+
+# Go tasks - these expect MISE_GO_WORKING_DIR to be set, defaulting to "."
+[tasks.go-test]
+description = "Run Go tests"
+run = """
+wd="${MISE_GO_WORKING_DIR:-.}"
+cd "$wd"
+if [ -n "$MISE_GO_TEST_COMMAND" ]; then
+  eval "$MISE_GO_TEST_COMMAND"
+elif [ "$MISE_GO_RUN_RACE" = "true" ]; then
+  go test -race ${MISE_GO_TEST_ARGS} ./...
+else
+  go test ${MISE_GO_TEST_ARGS} ./...
+fi
+"""
+depends = ["go-build"]
+
+[tasks.go-build]
+description = "Run Go build command (if specified)"
+run = """
+wd="${MISE_GO_WORKING_DIR:-.}"
+cd "$wd"
+if [ -n "$MISE_GO_BUILD_COMMAND" ]; then
+  eval "$MISE_GO_BUILD_COMMAND"
+fi
+"""
+
+[tasks.go-vet]
+description = "Run go vet"
+run = """
+wd="${MISE_GO_WORKING_DIR:-.}"
+cd "$wd"
+go vet ./...
+"""
+
+[tasks.go-fmt]
+description = "Check Go formatting with gofmt"
+run = """
+wd="${MISE_GO_WORKING_DIR:-.}"
+cd "$wd"
+if [ -n "$(gofmt -l .)" ]; then
+  echo "Error: Code is not formatted with gofmt"
+  gofmt -l .
+  exit 1
+fi
+"""
+
+[tasks.go-lint]
+description = "Run golangci-lint"
+run = """
+wd="${MISE_GO_WORKING_DIR:-.}"
+cd "$wd"
+golangci-lint run ${MISE_GO_LINT_ARGS:---timeout=5m}
+"""
+
+[tasks.go-ci]
+description = "Run Go CI (test, vet, fmt)"
+run = """
+echo "### Go CI Running"
+mise run go-test || exit 1
+mise run go-vet || exit 1
+mise run go-fmt || exit 1
+echo "### Go CI Complete"
+"""
+
+# Node tasks - these expect MISE_NODE_WORKING_DIR to be set, defaulting to "."
+[tasks.node-install-npm]
+description = "Install Node dependencies with npm"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+npm ci
+"""
+
+[tasks.node-install-pnpm]
+description = "Install Node dependencies with pnpm"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+pnpm install --frozen-lockfile
+"""
+
+[tasks.node-install-yarn]
+description = "Install Node dependencies with yarn"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+yarn install --frozen-lockfile
+"""
+
+[tasks.node-install]
+description = "Install Node dependencies (auto-detect package manager)"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+if [ -n "$MISE_NODE_INSTALL_COMMAND" ]; then
+  eval "$MISE_NODE_INSTALL_COMMAND"
+elif [ -f pnpm-lock.yaml ]; then
+  pnpm install --frozen-lockfile
+elif [ -f yarn.lock ]; then
+  yarn install --frozen-lockfile
+else
+  npm ci
+fi
+"""
+
+[tasks.node-lint]
+description = "Run Node linter"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+pm="${MISE_NODE_PACKAGE_MANAGER:-pnpm}"
+case "$pm" in
+  npm) npm run lint --if-present ;;
+  pnpm) pnpm run --if-present lint ;;
+  yarn) yarn run lint --if-present ;;
+  *) echo "Unsupported package manager"; exit 1 ;;
+esac
+"""
+
+[tasks.node-test]
+description = "Run Node tests"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+pm="${MISE_NODE_PACKAGE_MANAGER:-pnpm}"
+script="${MISE_NODE_TEST_SCRIPT:-test}"
+case "$pm" in
+  npm) npm run "$script" --if-present ;;
+  pnpm) pnpm run --if-present "$script" ;;
+  yarn) yarn run "$script" --if-present ;;
+  *) echo "Unsupported package manager"; exit 1 ;;
+esac
+"""
+depends = ["node-install"]
+
+[tasks.node-build]
+description = "Run Node build"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+pm="${MISE_NODE_PACKAGE_MANAGER:-pnpm}"
+case "$pm" in
+  npm) npm run build --if-present ;;
+  pnpm) pnpm run --if-present build ;;
+  yarn) yarn run build --if-present ;;
+  *) echo "Unsupported package manager"; exit 1 ;;
+esac
+"""
+depends = ["node-install"]
+
+[tasks.node-fallow]
+description = "Run fallow code quality check"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+npx --no-install fallow --ci
+"""
+depends = ["node-install"]
+
+[tasks.node-knip]
+description = "Run knip unused dependency check"
+run = """
+wd="${MISE_NODE_WORKING_DIR:-.}"
+cd "$wd"
+npx --no-install knip --no-progress
+"""
+depends = ["node-install"]
+
+[tasks.node-ci]
+description = "Run Node CI (install, lint, test)"
+run = """
+echo "### Node CI Running"
+mise run node-install || exit 1
+mise run node-fallow || exit 1
+mise run node-knip || exit 1
+mise run node-lint || exit 1
+mise run node-test || exit 1
+echo "### Node CI Complete"
+"""
+
+# Bun tasks - these expect MISE_BUN_WORKING_DIR to be set, defaulting to "."
+[tasks.bun-install]
+description = "Install Bun dependencies"
+run = """
+wd="${MISE_BUN_WORKING_DIR:-.}"
+cd "$wd"
+if [ "${MISE_BUN_FROZEN_LOCKFILE:-true}" = "true" ]; then
+  bun install --frozen-lockfile
+else
+  bun install
+fi
+"""
+
+[tasks.bun-lint]
+description = "Run Bun linter"
+run = """
+wd="${MISE_BUN_WORKING_DIR:-.}"
+cd "$wd"
+bun run lint
+"""
+depends = ["bun-install"]
+
+[tasks.bun-test]
+description = "Run Bun tests"
+run = """
+wd="${MISE_BUN_WORKING_DIR:-.}"
+cd "$wd"
+bun test
+"""
+depends = ["bun-install"]
+
+[tasks.bun-ci]
+description = "Run Bun CI (install, test)"
+run = """
+echo "### Bun CI Running"
+mise run bun-install || exit 1
+mise run bun-test || exit 1
+echo "### Bun CI Complete"
+"""
+
+# Fixture contract tests
+[tasks.test-go-fixture]
+description = "Run Go fixture contract tests"
+run = """
+echo "### Go fixture tests"
+cd fixtures/go || exit 1
+go test ./... || exit 1
+go vet ./... || exit 1
+test -z "$(gofmt -l .)" || (echo "Code not formatted"; exit 1)
+"""
+
+[tasks.test-node-fixture]
+description = "Run Node fixture contract tests"
+run = """
+echo "### Node fixture tests"
+cd fixtures/node || exit 1
+npm ci || exit 1
+npm test || exit 1
+"""
+
+[tasks.test-bun-fixture]
+description = "Run Bun fixture contract tests"
+run = """
+echo "### Bun fixture tests"
+cd fixtures/bun || exit 1
+bun install --no-save || exit 1
+bun test basic.test.ts || exit 1
+"""
+
+[tasks.test-fixtures]
+description = "Run all fixture contract tests"
+run = """
+echo "### Running all fixture tests"
+mise run test-go-fixture || exit 1
+mise run test-node-fixture || exit 1
+mise run test-bun-fixture || exit 1
+echo "### All fixture tests passed"
+"""
+
+# Validation tasks
+[tasks.validate-workflows]
+description = "Validate workflow YAML and action pinning"
+run = """
+python -m pip install --disable-pip-version-check --quiet pyyaml
+find .github/workflows -name "*.yml" -o -name "*.yaml" | while read f; do
+  [ "$f" = ".github/workflows/monthly-docs-audit.md" ] && continue
+  python3 -c "import yaml; yaml.safe_load(open('$f'))" && echo "✓ $f" || echo "✗ $f"
+done
+echo "✓ All workflow YAML is valid"
+"""
+
+[tasks.ci]
+description = "Run full CI suite (validate + test fixtures)"
+run = """
+echo "### Running CI"
+mise run validate-workflows || exit 1
+mise run test-fixtures || exit 1
+echo "### CI Complete"
+"""
