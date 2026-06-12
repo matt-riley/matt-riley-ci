@@ -1,0 +1,69 @@
+name: Universal CI
+
+on:
+  workflow_call:
+    inputs:
+      tasks:
+        description: 'Comma-separated list of mise tasks to run (e.g., "go-test,go-vet,go-fmt")'
+        required: true
+        type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
+      concurrency-suffix:
+        description: 'Optional suffix to distinguish concurrency groups'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  ci:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install mise
+        uses: jdx/mise-action@v3
+
+      - name: Run tasks
+        run: |
+          tasks="${{ inputs.tasks }}"
+          IFS=',' read -ra task_array <<< "$tasks"
+          for task in "${task_array[@]}"; do
+            task="${task// /}"  # trim whitespace
+            if [ -z "$task" ]; then continue; fi
+            echo "### Running: $task"
+            mise run "$task" || exit 1
+          done
+        env:
+          MISE_EXPERIMENTAL: true
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Universal CI summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
+            echo "- tasks: \`${{ inputs.tasks }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
