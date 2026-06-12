@@ -307,6 +307,40 @@ jobs:
 
 > `github-token` is optional and falls back to `github.token`. Only set `homebrew-tap-token` if GoReleaser publishes to a Homebrew tap.
 
+### Homebrew Formula
+
+Publishes a formula update to a Homebrew tap from four existing release archives.
+This is useful for non-GoReleaser projects that already publish archives for
+macOS and Linux.
+
+```yaml
+jobs:
+  homebrew:
+    uses: matt-riley/matt-riley-ci/.github/workflows/homebrew-formula.yml@v2
+    with:
+      tag: v1.2.3
+      tap-repo: matt-riley/homebrew-tools
+      formula-name: mytool
+      class-name: Mytool
+      desc: My command line tool
+      homepage: https://github.com/matt-riley/mytool
+      license: MIT
+      binary: mytool
+      archive-x86_64-macos: mytool-x86_64-macos.tar.gz
+      archive-aarch64-macos: mytool-aarch64-macos.tar.gz
+      archive-x86_64-linux: mytool-x86_64-linux.tar.gz
+      archive-aarch64-linux: mytool-aarch64-linux.tar.gz
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      homebrew-tap-token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+```
+
+`source-repo` defaults to the caller repository. The workflow downloads the
+named archives from the release tag, calculates SHA256 checksums, writes
+`Formula/<formula-name>.rb`, and pushes only when the formula changes. Missing
+`homebrew-tap-token` is a warning by default; set `fail-if-missing-token: true`
+to fail the job instead.
+
 ### Go Security
 
 Runs [`govulncheck`](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) to detect known vulnerabilities in Go dependencies. Suitable as a PR check or scheduled weekly scan.

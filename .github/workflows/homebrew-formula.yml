@@ -1,0 +1,215 @@
+name: Homebrew Formula
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to publish, for example v1.2.3'
+        required: true
+        type: string
+      source-repo:
+        description: 'Repository containing release assets; defaults to the caller repository'
+        required: false
+        default: ''
+        type: string
+      tap-repo:
+        description: 'Homebrew tap repository'
+        required: false
+        default: 'matt-riley/homebrew-tools'
+        type: string
+      formula-name:
+        description: 'Formula filename without .rb'
+        required: true
+        type: string
+      class-name:
+        description: 'Ruby Formula class name'
+        required: true
+        type: string
+      desc:
+        description: 'Homebrew formula description'
+        required: true
+        type: string
+      homepage:
+        description: 'Formula homepage URL'
+        required: true
+        type: string
+      license:
+        description: 'SPDX license expression'
+        required: false
+        default: ''
+        type: string
+      binary:
+        description: 'Binary to install from each archive'
+        required: true
+        type: string
+      archive-x86_64-macos:
+        description: 'Release asset for Intel macOS'
+        required: true
+        type: string
+      archive-aarch64-macos:
+        description: 'Release asset for Apple Silicon macOS'
+        required: true
+        type: string
+      archive-x86_64-linux:
+        description: 'Release asset for x86_64 Linux'
+        required: true
+        type: string
+      archive-aarch64-linux:
+        description: 'Release asset for aarch64 Linux'
+        required: true
+        type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+      fail-if-missing-token:
+        description: 'Fail instead of warning when homebrew-tap-token is not set'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      github-token:
+        description: 'GitHub token used to read release assets'
+        required: false
+      homebrew-tap-token:
+        description: 'PAT with contents:write for the Homebrew tap repository'
+        required: false
+
+jobs:
+  update-formula:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Update formula
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.github-token || github.token }}
+          TAP_TOKEN: ${{ secrets.homebrew-tap-token }}
+          SOURCE_REPO: ${{ inputs.source-repo != '' && inputs.source-repo || github.repository }}
+          TAP_REPO: ${{ inputs.tap-repo }}
+          TAG: ${{ inputs.tag }}
+          FORMULA_NAME: ${{ inputs.formula-name }}
+          CLASS_NAME: ${{ inputs.class-name }}
+          DESC: ${{ inputs.desc }}
+          HOMEPAGE: ${{ inputs.homepage }}
+          LICENSE: ${{ inputs.license }}
+          BINARY: ${{ inputs.binary }}
+          ARCHIVE_X86_64_MACOS: ${{ inputs.archive-x86_64-macos }}
+          ARCHIVE_AARCH64_MACOS: ${{ inputs.archive-aarch64-macos }}
+          ARCHIVE_X86_64_LINUX: ${{ inputs.archive-x86_64-linux }}
+          ARCHIVE_AARCH64_LINUX: ${{ inputs.archive-aarch64-linux }}
+          FAIL_IF_MISSING_TOKEN: ${{ inputs.fail-if-missing-token }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            message="homebrew-tap-token is not set; ${TAP_REPO} was not updated."
+            if [ "$FAIL_IF_MISSING_TOKEN" = "true" ]; then
+              echo "::error::${message}"
+              exit 1
+            fi
+            echo "::warning::${message}"
+            exit 0
+          fi
+
+          version="${TAG#v}"
+          dist_dir="${RUNNER_TEMP}/homebrew-assets"
+          tap_dir="${RUNNER_TEMP}/homebrew-tap"
+          rm -rf "$dist_dir" "$tap_dir"
+          mkdir -p "$dist_dir"
+
+          for archive in \
+            "$ARCHIVE_X86_64_MACOS" \
+            "$ARCHIVE_AARCH64_MACOS" \
+            "$ARCHIVE_X86_64_LINUX" \
+            "$ARCHIVE_AARCH64_LINUX"
+          do
+            gh release download "$TAG" \
+              --repo "$SOURCE_REPO" \
+              --pattern "$archive" \
+              --dir "$dist_dir"
+          done
+
+          sha_x86_64_macos="$(sha256sum "$dist_dir/$ARCHIVE_X86_64_MACOS" | awk '{print $1}')"
+          sha_aarch64_macos="$(sha256sum "$dist_dir/$ARCHIVE_AARCH64_MACOS" | awk '{print $1}')"
+          sha_x86_64_linux="$(sha256sum "$dist_dir/$ARCHIVE_X86_64_LINUX" | awk '{print $1}')"
+          sha_aarch64_linux="$(sha256sum "$dist_dir/$ARCHIVE_AARCH64_LINUX" | awk '{print $1}')"
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" "$tap_dir"
+          formula_path="$tap_dir/Formula/${FORMULA_NAME}.rb"
+          mkdir -p "$(dirname "$formula_path")"
+
+          {
+            echo "# typed: false"
+            echo "# frozen_string_literal: true"
+            echo
+            echo "# Managed by CI - do not edit manually."
+            echo "class ${CLASS_NAME} < Formula"
+            echo "  desc \"${DESC}\""
+            echo "  homepage \"${HOMEPAGE}\""
+            echo "  version \"${version}\""
+            if [ -n "$LICENSE" ]; then
+              echo "  license \"${LICENSE}\""
+            fi
+            echo
+            echo "  on_macos do"
+            echo "    if Hardware::CPU.arm?"
+            echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${TAG}/${ARCHIVE_AARCH64_MACOS}\""
+            echo "      sha256 \"${sha_aarch64_macos}\""
+            echo "    else"
+            echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${TAG}/${ARCHIVE_X86_64_MACOS}\""
+            echo "      sha256 \"${sha_x86_64_macos}\""
+            echo "    end"
+            echo "  end"
+            echo
+            echo "  on_linux do"
+            echo "    if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?"
+            echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${TAG}/${ARCHIVE_AARCH64_LINUX}\""
+            echo "      sha256 \"${sha_aarch64_linux}\""
+            echo "    else"
+            echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${TAG}/${ARCHIVE_X86_64_LINUX}\""
+            echo "      sha256 \"${sha_x86_64_linux}\""
+            echo "    end"
+            echo "  end"
+            echo
+            echo "  def install"
+            echo "    bin.install \"${BINARY}\""
+            echo "  end"
+            echo
+            echo "  test do"
+            echo "    system bin/\"${BINARY}\", \"version\""
+            echo "  end"
+            echo "end"
+          } > "$formula_path"
+
+          cd "$tap_dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$formula_path"
+
+          if git diff --staged --quiet; then
+            echo "Formula ${FORMULA_NAME}.rb is already up to date."
+            exit 0
+          fi
+
+          git commit -m "chore: update ${FORMULA_NAME} to ${version}"
+          git push
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Homebrew formula summary"
+            echo "- source-repo: \`${{ inputs.source-repo != '' && inputs.source-repo || github.repository }}\`"
+            echo "- tap-repo: \`${{ inputs.tap-repo }}\`"
+            echo "- tag: \`${{ inputs.tag }}\`"
+            echo "- formula: \`${{ inputs.formula-name }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
