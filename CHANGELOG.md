@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.0.0...v2.1.0) (2026-06-12)
+
+
+### Features
+
+* add reusable homebrew formula workflow ([9558d9e](https://github.com/matt-riley/matt-riley-ci/commit/9558d9e0b4cf7ce0bd0786f7300f2aae0eab0683))
+
 ## [2.0.0](https://github.com/matt-riley/matt-riley-ci/compare/v1.10.0...v2.0.0) (2026-06-12)
 
 
