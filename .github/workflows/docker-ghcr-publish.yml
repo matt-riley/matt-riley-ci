@@ -73,6 +73,11 @@ on:
         required: false
         default: false
         type: boolean
+      concurrency-suffix:
+        description: 'Optional suffix to distinguish concurrency groups when this reusable workflow is called multiple times in one workflow'
+        required: false
+        default: ''
+        type: string
       timeout-minutes:
         description: 'Job timeout in minutes'
         required: false
@@ -101,7 +106,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     concurrency:
-      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      group: ${{ format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) }}
       cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
