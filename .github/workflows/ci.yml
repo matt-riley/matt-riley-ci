@@ -86,6 +86,53 @@ jobs:
       - name: Install configured tools
         run: mise install
 
+      # Caches restore before `mise run install` ships the package modules /
+      # Playwright browsers; actions/cache auto-saves at job end. Each step
+      # is gated on its lockfile so a Go repo never caches pnpm and vice versa.
+      - name: Cache pnpm store
+        if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+            ~/.cache/pnpm
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Cache npm cache
+        if: ${{ hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == '' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Cache Go modules and build cache
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('go.mod') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Cache Playwright browser binaries
+        # Restored before `mise run install` (which installs browsers) and
+        # saved after the install task populates them. Keyed by runner OS so
+        # Linux/mac binaries never cross-contaminate. Skipped for repos with
+        # no Playwright config.
+        if: ${{ hashFiles('**/playwright.config.ts', '**/playwright.config.js') != '' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/playwright.config.ts', '**/playwright.config.js') }}-v1
+
       - name: Export task environment
         if: ${{ inputs.task-env != '' }}
         env:

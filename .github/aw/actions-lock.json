@@ -1,5 +1,10 @@
 {
   "entries": {
+    "actions/cache@v5": {
+      "repo": "actions/cache",
+      "version": "v5",
+      "sha": "27d5ce7f107fe9357f9df03efb73ab90386fccae"
+    },
     "actions/checkout@v6.0.2": {
       "repo": "actions/checkout",
       "version": "v6.0.2",
