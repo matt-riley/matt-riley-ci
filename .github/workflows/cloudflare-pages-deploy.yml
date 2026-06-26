@@ -63,11 +63,11 @@ jobs:
 
       - name: Install pnpm (default)
         if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version == '' }}
-        uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
       - name: Install pnpm (pinned)
         if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version != '' }}
-        uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           version: ${{ inputs.pnpm-version }}
 
