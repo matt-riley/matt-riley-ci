@@ -74,7 +74,7 @@ jobs:
                                   bad.append(f"{file}: input '{name}' has invalid type '{typ}'")
 
               jobs = (data or {}).get("jobs", {})
-              if file.name in {"node-ci.yml", "aube-ci.yml"}:
+              if file.name in {"aube-ci.yml"}:
                   ci_job = jobs.get("ci", {})
                   permissions = ci_job.get("permissions", {})
                   if permissions.get("packages") != "read":

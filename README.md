@@ -31,6 +31,7 @@ jobs:
       timeout-minutes: 15
       cancel-in-progress: false
       concurrency-suffix: ""
+      working-directory: "."
 ```
 
 This workflow runs `mise run install`, `lint`, `build`, `test`, `vet`, and `fmt` when the matching boolean input is `true`. Use `task-prefix` only when a repository namespaces tasks, for example `task-prefix: "go-"` to run `go-test`, `go-vet`, and `go-fmt`. Use `task-env` for multiline task configuration such as working directories or command overrides. Repositories should declare any required runtimes or tools through `mise.toml` or `.tool-versions` so the workflow can provision them consistently.
@@ -38,34 +39,6 @@ This workflow runs `mise run install`, `lint`, `build`, `test`, `vet`, and `fmt`
 The workflow restores and saves dependency caches keyed by lockfile hash before running the install task: the pnpm store (when `pnpm-lock.yaml` is present), the npm cache (when `package-lock.json` is present and no pnpm lockfile is), Go modules plus the Go build cache (when `go.mod` is present), and Playwright browser binaries (when a `playwright.config.ts` or `playwright.config.js` exists). Each cache is scoped to `runner.os` so Linux and macOS runner binaries never cross-contaminate. Caches auto-restore at job start (falling through cleanly on a miss) and auto-save at job end.
 
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
-
-### Go CI
-
-```yaml
-jobs:
-  ci:
-    uses: matt-riley/matt-riley-ci/.github/workflows/go-ci.yml@v1
-    with:
-      runner: ubuntu-latest
-      go-version-file: go.mod
-      working-directory: .
-      run-test: true
-      run-race: false
-      run-vet: true
-      run-fmt: false
-      test-args: ""
-      test-command: ""
-      build-command: ""
-      coverage-path: ""
-      coverage-artifact-name: ""
-      timeout-minutes: 15
-      cancel-in-progress: false
-      concurrency-suffix: ""
-```
-
-Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
-
-Use `run-test: false` for build-only or format-only invocations, `build-command` for an explicit build step, `test-command` when the default `go test ./...` contract is not enough, and `coverage-path` + `coverage-artifact-name` to publish coverage output for downstream jobs such as Codecov uploads. When `test-command` is set, the workflow does not apply `test-args` or `run-race` automatically; include any desired extra args or race flags directly in the custom command. `coverage-path` and `coverage-artifact-name` must be set together; providing only one is treated as an invalid configuration.
 
 ### Go Lint
 
@@ -83,35 +56,6 @@ jobs:
       timeout-minutes: 15
       cancel-in-progress: false
 ```
-
-### Node CI
-
-```yaml
-jobs:
-  ci:
-    uses: matt-riley/matt-riley-ci/.github/workflows/node-ci.yml@v1
-    with:
-      node-version: "22"
-      runner: ubuntu-latest
-      package-manager: pnpm
-      pnpm-version: ""
-      working-directory: .
-      cache-dependency-path: ""
-      require-lockfile: false
-      install-command: ""
-      run-lint: true
-      run-test: true
-      run-build: false
-      test-script: test
-      verify-lockfile-clean: false
-      lockfile-path: ""
-      build-env: ""
-      timeout-minutes: 15
-      cancel-in-progress: false
-      concurrency-suffix: ""
-```
-
-Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
 ### Aube CI
 
@@ -141,24 +85,6 @@ jobs:
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
 Aube reads supported lockfiles in place (`aube-lock.yaml`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, and `bun.lock`). If a repository contains more than one supported lockfile, set `lockfile-path` explicitly so the workflow can validate and diff the intended file.
-
-### Bun CI
-
-```yaml
-jobs:
-  ci:
-    uses: matt-riley/matt-riley-ci/.github/workflows/bun-ci.yml@v1
-    with:
-      bun-version: latest
-      runner: ubuntu-latest
-      working-directory: .
-      frozen-lockfile: true
-      require-lockfile: false
-      run-lint: false
-      run-test: true
-      timeout-minutes: 15
-      cancel-in-progress: false
-```
 
 ### Cloudflare Pages Deploy
 
