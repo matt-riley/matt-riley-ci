@@ -63,6 +63,11 @@ on:
         required: false
         default: ''
         type: string
+      working-directory:
+        description: 'Working directory for run steps. Note: the mise tasks handle working directories through task-env (e.g. MISE_GO_WORKING_DIR). This input exists for backwards compatibility with callers that pass it.'
+        required: false
+        default: '.'
+        type: string
 
 jobs:
   ci:
@@ -82,9 +87,6 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
-
-      - name: Install configured tools
-        run: mise install
 
       # Caches restore before `mise run install` ships the package modules /
       # Playwright browsers; actions/cache auto-saves at job end. Each step
