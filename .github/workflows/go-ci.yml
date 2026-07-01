@@ -1,0 +1,176 @@
+name: Go CI
+
+on:
+  workflow_call:
+    inputs:
+      go-version-file:
+        description: 'Path to go.mod'
+        required: false
+        default: 'go.mod'
+        type: string
+      runner:
+        description: 'Runner label'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      working-directory:
+        description: 'Directory to run commands in'
+        required: false
+        default: '.'
+        type: string
+      run-test:
+        description: 'Run tests'
+        required: false
+        default: true
+        type: boolean
+      run-race:
+        description: 'Run tests with -race'
+        required: false
+        default: false
+        type: boolean
+      run-vet:
+        description: 'Run go vet'
+        required: false
+        default: true
+        type: boolean
+      run-fmt:
+        description: 'Check formatting with gofmt'
+        required: false
+        default: false
+        type: boolean
+      timeout-minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 15
+        type: number
+      test-args:
+        description: 'Extra args passed to go test'
+        required: false
+        default: ''
+        type: string
+      test-command:
+        description: 'Custom command to run instead of the default go test invocation; bypasses test-args and run-race'
+        required: false
+        default: ''
+        type: string
+      build-command:
+        description: 'Optional build command to run before tests'
+        required: false
+        default: ''
+        type: string
+      coverage-path:
+        description: 'Optional coverage file path relative to working-directory to upload as an artifact'
+        required: false
+        default: ''
+        type: string
+      coverage-artifact-name:
+        description: 'Artifact name for uploaded coverage output'
+        required: false
+        default: ''
+        type: string
+      cancel-in-progress:
+        description: 'Cancel previous in-progress runs for same ref'
+        required: false
+        default: false
+        type: boolean
+      concurrency-suffix:
+        description: 'Optional suffix to distinguish concurrency groups when this reusable workflow is called multiple times in one workflow'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  test:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: true
+          cache-dependency-path: ${{ inputs.go-version-file }}
+
+      - name: Validate test inputs
+        if: ${{ inputs.run-test && inputs.test-command != '' && (inputs.run-race || inputs.test-args != '') }}
+        run: |
+          echo "::error title=Invalid Go CI inputs::test-command bypasses run-race and test-args. Include any race or extra test flags directly in test-command, or unset test-command to use the default test runner."
+          exit 1
+
+      - name: Validate coverage inputs
+        if: ${{ (inputs.coverage-path == '' && inputs.coverage-artifact-name != '') || (inputs.coverage-path != '' && inputs.coverage-artifact-name == '') }}
+        run: |
+          echo "::error title=Invalid Go CI inputs::coverage-path and coverage-artifact-name must be set together to upload coverage artifacts."
+          exit 1
+
+      - name: Install mise
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+
+      - name: Build
+        if: ${{ inputs.build-command != '' }}
+        run: |
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          export MISE_GO_BUILD_COMMAND="${{ inputs.build-command }}"
+          mise run go-build
+        env:
+          MISE_EXPERIMENTAL: true
+
+      - name: Test
+        if: ${{ inputs.run-test }}
+        run: |
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          export MISE_GO_RUN_RACE="${{ inputs.run-race }}"
+          export MISE_GO_TEST_ARGS="${{ inputs.test-args }}"
+          export MISE_GO_TEST_COMMAND="${{ inputs.test-command }}"
+          mise run go-test
+        env:
+          MISE_EXPERIMENTAL: true
+
+      - name: Upload coverage artifact
+        if: ${{ inputs.coverage-path != '' && inputs.coverage-artifact-name != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ inputs.coverage-artifact-name }}
+          path: ${{ format('{0}/{1}', inputs.working-directory, inputs.coverage-path) }}
+          if-no-files-found: error
+
+      - name: Vet
+        if: ${{ inputs.run-vet }}
+        run: |
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          mise run go-vet
+        env:
+          MISE_EXPERIMENTAL: true
+
+      - name: Check formatting (gofmt)
+        if: ${{ inputs.run-fmt }}
+        run: |
+          export MISE_GO_WORKING_DIR="${{ inputs.working-directory }}"
+          mise run go-fmt
+        env:
+          MISE_EXPERIMENTAL: true
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Go CI summary"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- run-test: \`${{ inputs.run-test }}\`"
+            echo "- run-race: \`${{ inputs.run-race }}\`"
+            echo "- run-vet: \`${{ inputs.run-vet }}\`"
+            echo "- run-fmt: \`${{ inputs.run-fmt }}\`"
+            echo "- build-command configured: \`${{ inputs.build-command != '' }}\`"
+            echo "- test-command configured: \`${{ inputs.test-command != '' }}\`"
+            echo "- test-args: \`${{ inputs.test-args }}\`"
+            echo "- coverage artifact configured: \`${{ inputs.coverage-path != '' && inputs.coverage-artifact-name != '' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
