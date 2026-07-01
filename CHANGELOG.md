@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.1.0...v2.2.0) (2026-07-01)
+
+
+### Features
+
+* restore go-ci.yml workflow with cache fix ([#80](https://github.com/matt-riley/matt-riley-ci/issues/80)) ([071c2c2](https://github.com/matt-riley/matt-riley-ci/commit/071c2c2bbe410f73126d3cefd0a0b6812b3565f6))
+
+
+### Bug Fixes
+
+* add cache-dependency-path for mono-repo go.mod support ([#78](https://github.com/matt-riley/matt-riley-ci/issues/78)) ([69072da](https://github.com/matt-riley/matt-riley-ci/commit/69072da4c9ad3988635b47728b64c30e593da027))
+
 ## [2.1.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.0.0...v2.1.0) (2026-06-26)
 
 
