@@ -57,6 +57,7 @@ jobs:
         with:
           go-version-file: ${{ inputs.go-version-file }}
           cache: true
+          cache-dependency-path: ${{ inputs.go-version-file }}
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck-version }}
