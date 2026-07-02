@@ -93,7 +93,7 @@ jobs:
       # is gated on its lockfile so a Go repo never caches pnpm and vice versa.
       - name: Cache pnpm store
         if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.local/share/pnpm/store
@@ -104,7 +104,7 @@ jobs:
 
       - name: Cache npm cache
         if: ${{ hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == '' }}
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -113,7 +113,7 @@ jobs:
 
       - name: Cache Go modules and build cache
         if: ${{ hashFiles('go.mod') != '' }}
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/go/pkg/mod
@@ -128,7 +128,7 @@ jobs:
         # Linux/mac binaries never cross-contaminate. Skipped for repos with
         # no Playwright config.
         if: ${{ hashFiles('**/playwright.config.ts', '**/playwright.config.js') != '' }}
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/ms-playwright
