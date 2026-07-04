@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.2.0...v2.3.0) (2026-07-03)
+
+
+### Features
+
+* restore go-ci.yml workflow with cache fix ([#80](https://github.com/matt-riley/matt-riley-ci/issues/80)) ([071c2c2](https://github.com/matt-riley/matt-riley-ci/commit/071c2c2bbe410f73126d3cefd0a0b6812b3565f6))
+
 ## [2.2.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.1.0...v2.2.0) (2026-07-01)
 
 
