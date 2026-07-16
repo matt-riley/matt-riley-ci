@@ -6,19 +6,30 @@ import yaml
 
 
 class RequestInfraDeployContractTest(unittest.TestCase):
+    def _get_step(self, data, step_name):
+        for job in data["jobs"].values():
+            for step in job.get("steps", []):
+                if step.get("name") == step_name:
+                    return step
+        self.fail(f"Missing workflow step: {step_name}")
+
     def setUp(self):
         data = yaml.safe_load(
             pathlib.Path(".github/workflows/request-infra-deploy.yml").read_text()
         )
         self.workflow = data.get("on", data.get(True))
         self.call = self.workflow["workflow_call"]
-        self.dispatch_run = next(
-            step.get("run", "")
-            for job in data["jobs"].values()
-            for step in job.get("steps", [])
-            if step.get("name") == "Dispatch infra deploy request"
+        self.dispatch_run = self._get_step(data, "Dispatch infra deploy request").get(
+            "run", ""
         )
-        match = re.search(r"python - <<'PY' \| curl.*?\n(.*?)\n\s*PY\n?", self.dispatch_run, re.S)
+        self.validation_run = self._get_step(
+            data, "Validate artifact dispatch contract"
+        ).get("run", "")
+        match = re.search(
+            r"python - <<'PY' \| curl.*?\n(.*?)\n\s*PY\n?",
+            self.dispatch_run,
+            re.S,
+        )
         self.dispatch_python = match.group(1) if match else ""
 
     def test_artifact_inputs_are_optional_and_all_or_none(self):
@@ -36,9 +47,10 @@ class RequestInfraDeployContractTest(unittest.TestCase):
                 self.assertEqual(inputs[name]["type"], input_type)
                 self.assertEqual(inputs[name]["default"], default_value)
 
-        self.assertEqual(
-            {name for name in artifact_inputs if name in inputs},
-            set(artifact_inputs),
+    def test_validation_step_enforces_all_or_none_artifact_guard(self):
+        self.assertRegex(
+            self.validation_run,
+            r'(?s)if\s+\[\s+-z\s+"\$ARTIFACT_RUN_ID"\s+\]\s+&&\s+\[\s+-z\s+"\$ARTIFACT_NAME"\s+\]\s+&&\s+\[\s+-z\s+"\$ARTIFACT_DIGEST"\s+\];\s+then.*?else.*?fi',
         )
         self.assertIn("ARTIFACT_RUN_ID", self.dispatch_python)
         self.assertIn("ARTIFACT_NAME", self.dispatch_python)
