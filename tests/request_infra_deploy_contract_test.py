@@ -1,4 +1,5 @@
 import pathlib
+import re
 import unittest
 
 import yaml
@@ -11,28 +12,41 @@ class RequestInfraDeployContractTest(unittest.TestCase):
         )
         self.workflow = data.get("on", data.get(True))
         self.call = self.workflow["workflow_call"]
-        self.run_scripts = "\n".join(
+        self.dispatch_run = next(
             step.get("run", "")
             for job in data["jobs"].values()
             for step in job.get("steps", [])
+            if step.get("name") == "Dispatch infra deploy request"
         )
+        match = re.search(r"python - <<'PY' \| curl.*?\n(.*?)\n\s*PY\n?", self.dispatch_run, re.S)
+        self.dispatch_python = match.group(1) if match else ""
 
-    def test_artifact_inputs_are_typed_and_optional(self):
+    def test_artifact_inputs_are_optional_and_all_or_none(self):
         inputs = self.call["inputs"]
-        self.assertEqual(inputs["artifact-run-id"]["type"], "number")
-        self.assertEqual(inputs["artifact-run-id"]["default"], 0)
-        self.assertEqual(inputs["artifact-name"]["type"], "string")
-        self.assertEqual(inputs["artifact-name"]["default"], "")
-        self.assertEqual(inputs["artifact-digest"]["type"], "string")
-        self.assertEqual(inputs["artifact-digest"]["default"], "")
+        artifact_inputs = {
+            "artifact-run-id": ("number", 0),
+            "artifact-name": ("string", ""),
+            "artifact-digest": ("string", ""),
+        }
 
-    def test_payload_validates_and_forwards_artifact_metadata(self):
-        self.assertIn("ARTIFACT_RUN_ID", self.run_scripts)
-        self.assertIn("ARTIFACT_NAME", self.run_scripts)
-        self.assertIn("ARTIFACT_DIGEST", self.run_scripts)
-        self.assertIn("artifact_run_id", self.run_scripts)
-        self.assertIn("artifact_name", self.run_scripts)
-        self.assertIn("artifact_digest", self.run_scripts)
+        for name, (input_type, default_value) in artifact_inputs.items():
+            with self.subTest(name=name):
+                self.assertIn(name, inputs)
+                self.assertFalse(inputs[name]["required"])
+                self.assertEqual(inputs[name]["type"], input_type)
+                self.assertEqual(inputs[name]["default"], default_value)
+
+        self.assertEqual(
+            {name for name in artifact_inputs if name in inputs},
+            set(artifact_inputs),
+        )
+        self.assertIn("ARTIFACT_RUN_ID", self.dispatch_python)
+        self.assertIn("ARTIFACT_NAME", self.dispatch_python)
+        self.assertIn("ARTIFACT_DIGEST", self.dispatch_python)
+        self.assertIn("artifact_run_id", self.dispatch_python)
+        self.assertIn("artifact_name", self.dispatch_python)
+        self.assertIn("artifact_digest", self.dispatch_python)
+        self.assertIn("json.dumps(payload)", self.dispatch_python)
 
 
 if __name__ == "__main__":
