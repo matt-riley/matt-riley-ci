@@ -115,7 +115,7 @@ Dispatches `deploy-app` to the infra repository so the centralized infra workflo
 ```yaml
 jobs:
   request-deploy:
-    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v1
+    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v2
     with:
       app-name: my-app
       infra-repo: infra
@@ -131,7 +131,7 @@ For an immutable artifact deployment, make the caller wait for its artifact job 
 jobs:
   request-deploy:
     needs: build
-    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v1
+    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v2
     with:
       app-name: my-app
       infra-repo: infra
