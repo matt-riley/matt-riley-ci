@@ -23,7 +23,7 @@ class RequestInfraDeployContractTest(unittest.TestCase):
             "run", ""
         )
         self.validation_run = self._get_step(
-            data, "Validate artifact dispatch contract"
+            data, "Validate artifact configuration"
         ).get("run", "")
         match = re.search(
             r"python - <<'PY' \| curl.*?\n(.*?)\n\s*PY\n?",
@@ -47,10 +47,19 @@ class RequestInfraDeployContractTest(unittest.TestCase):
                 self.assertEqual(inputs[name]["type"], input_type)
                 self.assertEqual(inputs[name]["default"], default_value)
 
-    def test_validation_step_enforces_all_or_none_artifact_guard(self):
-        self.assertRegex(
+    def test_validation_step_enforces_artifact_configuration(self):
+        self.assertIn('if [ "$ARTIFACT_RUN_ID" = "0" ]; then', self.validation_run)
+        self.assertIn(
+            'if [ -n "$ARTIFACT_NAME" ] || [ -n "$ARTIFACT_DIGEST" ]; then',
             self.validation_run,
-            r'(?s)if\s+\[\s+-z\s+"\$ARTIFACT_RUN_ID"\s+\]\s+&&\s+\[\s+-z\s+"\$ARTIFACT_NAME"\s+\]\s+&&\s+\[\s+-z\s+"\$ARTIFACT_DIGEST"\s+\];\s+then.*?else.*?fi',
+        )
+        self.assertIn(
+            'if ! [[ "$ARTIFACT_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then',
+            self.validation_run,
+        )
+        self.assertIn(
+            'if ! [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then',
+            self.validation_run,
         )
         self.assertIn("ARTIFACT_RUN_ID", self.dispatch_python)
         self.assertIn("ARTIFACT_NAME", self.dispatch_python)
