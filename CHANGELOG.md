@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.3.0...v2.4.0) (2026-07-18)
+
+
+### Features
+
+* Codex/waffle hetzner deployment ([#89](https://github.com/matt-riley/matt-riley-ci/issues/89)) ([9b99d0a](https://github.com/matt-riley/matt-riley-ci/commit/9b99d0a091d105cad7ed5728373225e143efd2f4))
+* pass immutable artifacts to infra deploys ([3d73ebe](https://github.com/matt-riley/matt-riley-ci/commit/3d73ebeba8b7226fc445cd87e4f9a74a8f088f2c))
+
 ## [2.3.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.2.0...v2.3.0) (2026-07-03)
 
 
