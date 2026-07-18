@@ -125,6 +125,25 @@ jobs:
 
 The caller repository must define repository variable `APP_ID` and secret `PRIVATE_KEY`. By default, `infra-repo: infra` targets `${{ github.repository_owner }}/infra`; pass `owner/repo` to target a different infra repository explicitly.
 
+For an immutable artifact deployment, make the caller wait for its artifact job and pass all three artifact fields:
+
+```yaml
+jobs:
+  request-deploy:
+    needs: build
+    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v1
+    with:
+      app-name: my-app
+      infra-repo: infra
+      artifact-run-id: ${{ github.run_id }}
+      artifact-name: my-app-linux-amd64
+      artifact-digest: ${{ needs.build.outputs.artifact_digest }}
+    secrets:
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+```
+
+Artifact mode requires `artifact-run-id`, `artifact-name`, and `artifact-digest` together. Existing callers may omit all three fields for source-only dispatches. The GitHub App used by the infra repository must have Actions read access to the source repository so infra can download the exact artifact.
+
 ### Neovim Format
 
 Runs StyLua with a pinned release.

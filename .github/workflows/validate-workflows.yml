@@ -5,12 +5,14 @@ on:
     paths:
       - ".github/workflows/*.yml"
       - "README.md"
+      - "tests/**"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/*.yml"
       - "README.md"
+      - "tests/**"
 
 permissions:
   contents: read

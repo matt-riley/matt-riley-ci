@@ -12,6 +12,21 @@ on:
         required: false
         default: 'infra'
         type: string
+      artifact-run-id:
+        description: 'Actions run ID containing the immutable deployment artifact; 0 selects source-only mode'
+        required: false
+        default: 0
+        type: number
+      artifact-name:
+        description: 'Exact Actions artifact name to deploy'
+        required: false
+        default: ''
+        type: string
+      artifact-digest:
+        description: 'Actions artifact digest emitted by upload-artifact'
+        required: false
+        default: ''
+        type: string
     secrets:
       PRIVATE_KEY:
         description: 'GitHub App private key matching vars.APP_ID'
@@ -63,6 +78,33 @@ jobs:
             exit 1
           fi
 
+      - name: Validate artifact configuration
+        env:
+          ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+        run: |
+          if [ "$ARTIFACT_RUN_ID" = "0" ]; then
+            if [ -n "$ARTIFACT_NAME" ] || [ -n "$ARTIFACT_DIGEST" ]; then
+              echo "artifact-run-id, artifact-name, and artifact-digest must be supplied together." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if ! [[ "$ARTIFACT_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "artifact-run-id must be a positive Actions run ID." >&2
+            exit 1
+          fi
+          if [ -z "$ARTIFACT_NAME" ]; then
+            echo "artifact-name is required in artifact mode." >&2
+            exit 1
+          fi
+          if ! [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "artifact-digest must be a lowercase SHA-256 digest." >&2
+            exit 1
+          fi
+
       - name: Create GitHub App token for infra repo
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -81,6 +123,9 @@ jobs:
           SOURCE_REF: ${{ github.ref }}
           SOURCE_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
         run: |
           python - <<'PY' | curl --fail-with-body --silent --show-error \
             -X POST \
@@ -93,16 +138,24 @@ jobs:
           import os
           import sys
 
-          payload = {
-              "event_type": "deploy-app",
-              "client_payload": {
-                  "app": os.environ["APP_NAME"],
-                  "app_id": os.environ["APP_NAME"],
-                  "source_repo": os.environ["SOURCE_REPO"],
-                  "source_sha": os.environ["SOURCE_SHA"],
-                  "ref": os.environ["SOURCE_REF"],
-              },
+          client_payload = {
+              "app": os.environ["APP_NAME"],
+              "app_id": os.environ["APP_NAME"],
+              "source_repo": os.environ["SOURCE_REPO"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "ref": os.environ["SOURCE_REF"],
           }
+
+          if os.environ["ARTIFACT_RUN_ID"] != "0":
+              client_payload.update(
+                  {
+                      "artifact_run_id": int(os.environ["ARTIFACT_RUN_ID"]),
+                      "artifact_name": os.environ["ARTIFACT_NAME"],
+                      "artifact_digest": os.environ["ARTIFACT_DIGEST"],
+                  }
+              )
+
+          payload = {"event_type": "deploy-app", "client_payload": client_payload}
 
           sys.stdout.write(json.dumps(payload))
           PY
@@ -117,4 +170,8 @@ jobs:
             echo "- source-repo: \`${{ github.repository }}\`"
             echo "- source-sha: \`${{ github.sha }}\`"
             echo "- ref: \`${{ github.ref }}\`"
+            echo "- artifact-mode: \`${{ inputs.artifact-run-id != 0 }}\`"
+            echo "- artifact-run-id: \`${{ inputs.artifact-run-id }}\`"
+            echo "- artifact-name: \`${{ inputs.artifact-name }}\`"
+            echo "- artifact-digest: \`${{ inputs.artifact-digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
