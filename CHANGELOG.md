@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.1](https://github.com/matt-riley/matt-riley-ci/compare/v2.4.0...v2.4.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* release immutable infra artifact handoff ([#91](https://github.com/matt-riley/matt-riley-ci/issues/91)) ([328c7bd](https://github.com/matt-riley/matt-riley-ci/commit/328c7bd30116938c846b1cfc3188914e0dd3c5cb))
+
 ## [2.4.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.3.0...v2.4.0) (2026-07-18)
 
 
