@@ -33,6 +33,11 @@ on:
         required: false
         default: false
         type: boolean
+      save-cache:
+        description: 'Save dependency and build caches after a successful run'
+        required: false
+        default: false
+        type: boolean
       task-prefix:
         description: 'Optional prefix added before standard task names (for example "go-" -> "go-test")'
         required: false
@@ -87,13 +92,17 @@ jobs:
 
       - name: Install mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4
+        with:
+          cache_save: ${{ inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
       # Caches restore before `mise run install` ships the package modules /
-      # Playwright browsers; actions/cache auto-saves at job end. Each step
-      # is gated on its lockfile so a Go repo never caches pnpm and vice versa.
-      - name: Cache pnpm store
+      # Playwright browsers. Each step is gated on its lockfile so a Go repo
+      # never caches pnpm and vice versa. Only an opted-in trusted default-
+      # branch run saves updated entries after every requested task succeeds.
+      - name: Restore pnpm store
+        id: restore-pnpm
         if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.local/share/pnpm/store
@@ -102,33 +111,55 @@ jobs:
           restore-keys: |
             pnpm-${{ runner.os }}-
 
-      - name: Cache npm cache
+      - name: Restore npm cache
+        id: restore-npm
         if: ${{ hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             npm-${{ runner.os }}-
 
-      - name: Cache Go modules and build cache
+      - name: Detect Go cache metadata
+        id: go-cache-metadata
         if: ${{ hashFiles('go.mod') != '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('go.mod') }}
-          restore-keys: |
-            go-${{ runner.os }}-
+        shell: bash
+        run: |
+          {
+            echo "version=$(go env GOVERSION)"
+            echo "module_cache=$(go env GOMODCACHE)"
+            echo "build_cache=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Cache Playwright browser binaries
+      - name: Restore Go module cache
+        id: restore-go-modules
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.go-cache-metadata.outputs.module_cache }}
+          key: go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-
+
+      - name: Restore Go build cache
+        id: restore-go-build
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.go-cache-metadata.outputs.build_cache }}
+          key: go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-
+
+      - name: Restore Playwright browser binaries
+        id: restore-playwright
         # Restored before `mise run install` (which installs browsers) and
-        # saved after the install task populates them. Keyed by runner OS so
-        # Linux/mac binaries never cross-contaminate. Skipped for repos with
-        # no Playwright config.
+        # saved only by an opted-in trusted run after the install task
+        # populates them. Keyed by runner OS so Linux/mac binaries never
+        # cross-contaminate. Skipped for repos with no Playwright config.
         if: ${{ hashFiles('**/playwright.config.ts', '**/playwright.config.js') != '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/ms-playwright
@@ -173,6 +204,45 @@ jobs:
         if: ${{ inputs.fmt }}
         run: mise run "${{ inputs.task-prefix }}fmt"
 
+      - name: Save pnpm store
+        if: ${{ success() && inputs.save-cache && hashFiles('pnpm-lock.yaml') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-pnpm.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+            ~/.cache/pnpm
+          key: ${{ steps.restore-pnpm.outputs.cache-primary-key }}
+
+      - name: Save npm cache
+        if: ${{ success() && inputs.save-cache && hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-npm.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.npm
+          key: ${{ steps.restore-npm.outputs.cache-primary-key }}
+
+      - name: Save Go module cache
+        if: ${{ success() && inputs.save-cache && hashFiles('go.mod') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-go-modules.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.go-cache-metadata.outputs.module_cache }}
+          key: ${{ steps.restore-go-modules.outputs.cache-primary-key }}
+
+      - name: Save Go build cache
+        if: ${{ success() && inputs.save-cache && hashFiles('go.mod') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-go-build.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.go-cache-metadata.outputs.build_cache }}
+          key: ${{ steps.restore-go-build.outputs.cache-primary-key }}
+
+      - name: Save Playwright browser binaries
+        if: ${{ success() && inputs.save-cache && hashFiles('**/playwright.config.ts', '**/playwright.config.js') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-playwright.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+          key: ${{ steps.restore-playwright.outputs.cache-primary-key }}
+
       - name: Summary
         if: ${{ always() }}
         run: |
@@ -188,4 +258,7 @@ jobs:
             echo "- test: \`${{ inputs.test }}\`"
             echo "- vet: \`${{ inputs.vet }}\`"
             echo "- fmt: \`${{ inputs.fmt }}\`"
+            echo "- save-cache: \`${{ inputs.save-cache }}\`"
+            echo "- Go module cache: \`${{ steps.restore-go-modules.outputs.cache-matched-key || 'not used' }}\`"
+            echo "- Go build cache: \`${{ steps.restore-go-build.outputs.cache-matched-key || 'not used' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

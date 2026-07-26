@@ -56,8 +56,33 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: ${{ inputs.go-version-file }}
-          cache: true
-          cache-dependency-path: ${{ inputs.go-version-file }}
+          cache: false
+
+      - name: Detect Go cache metadata
+        id: go-cache-metadata
+        shell: bash
+        run: |
+          {
+            echo "version=$(go env GOVERSION)"
+            echo "module_cache=$(go env GOMODCACHE)"
+            echo "build_cache=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore Go module cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.go-cache-metadata.outputs.module_cache }}
+          key: go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-
+
+      - name: Restore Go build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.go-cache-metadata.outputs.build_cache }}
+          key: go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck-version }}
