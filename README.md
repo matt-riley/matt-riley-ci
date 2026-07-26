@@ -32,11 +32,14 @@ jobs:
       cancel-in-progress: false
       concurrency-suffix: ""
       working-directory: "."
+      save-cache: false
 ```
 
 This workflow runs `mise run install`, `lint`, `build`, `test`, `vet`, and `fmt` when the matching boolean input is `true`. Use `task-prefix` only when a repository namespaces tasks, for example `task-prefix: "go-"` to run `go-test`, `go-vet`, and `go-fmt`. Use `task-env` for multiline task configuration such as working directories or command overrides. Repositories should declare any required runtimes or tools through `mise.toml` or `.tool-versions` so the workflow can provision them consistently.
 
-The workflow restores and saves dependency caches keyed by lockfile hash before running the install task: the pnpm store (when `pnpm-lock.yaml` is present), the npm cache (when `package-lock.json` is present and no pnpm lockfile is), Go modules plus the Go build cache (when `go.mod` is present), and Playwright browser binaries (when a `playwright.config.ts` or `playwright.config.js` exists). Each cache is scoped to `runner.os` so Linux and macOS runner binaries never cross-contaminate. Caches auto-restore at job start (falling through cleanly on a miss) and auto-save at job end.
+The workflow restores dependency caches before running tasks. For Go repositories, modules and build outputs have separate lifecycles: the module cache is keyed by dependency files, while the build cache restores the newest compatible snapshot and uses the commit SHA for each new snapshot. Both keys include the runner OS, architecture, and installed Go version.
+
+Go and mise cache writes are disabled by default. Set `save-cache: true` on exactly one comprehensive caller job; the workflow still refuses to write those caches for pull requests or non-default branches. A successful default-branch run then seeds caches that later pull requests can restore. Other dependency caches retain their existing lockfile-based behavior.
 
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 
