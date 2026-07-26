@@ -103,6 +103,41 @@ class UniversalCiCacheContractTest(unittest.TestCase):
             "${{ steps.go-cache-metadata.outputs.build_cache }}",
         )
 
+    def test_specialized_go_workflows_restore_without_implicit_go_writes(self):
+        for path, job_name in (
+            (".github/workflows/go-lint.yml", "lint"),
+            (".github/workflows/go-security.yml", "govulncheck"),
+        ):
+            workflow = yaml.safe_load(Path(path).read_text())
+            steps = workflow["jobs"][job_name]["steps"]
+            steps_by_name = {
+                step["name"]: step for step in steps if "name" in step
+            }
+
+            self.assertIs(
+                steps_by_name["Set up Go"]["with"]["cache"],
+                False,
+            )
+            for name in ("Restore Go module cache", "Restore Go build cache"):
+                self.assertIn(name, steps_by_name)
+                self.assertEqual(
+                    steps_by_name[name]["uses"],
+                    "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+                )
+
+        lint = yaml.safe_load(
+            Path(".github/workflows/go-lint.yml").read_text()
+        )
+        lint_steps = {
+            step["name"]: step
+            for step in lint["jobs"]["lint"]["steps"]
+            if "name" in step
+        }
+        skip_save = lint_steps["Run golangci-lint"]["with"]["skip-save-cache"]
+        self.assertIn("github.event_name == 'push'", skip_save)
+        self.assertIn("github.event_name == 'workflow_dispatch'", skip_save)
+        self.assertIn("github.event.repository.default_branch", skip_save)
+
 
 if __name__ == "__main__":
     unittest.main()
