@@ -39,7 +39,7 @@ This workflow runs `mise run install`, `lint`, `build`, `test`, `vet`, and `fmt`
 
 The workflow restores dependency caches before running tasks. For Go repositories, modules and build outputs have separate lifecycles: the module cache is keyed by dependency files, while the build cache restores the newest compatible snapshot and uses the commit SHA for each new snapshot. Both keys include the runner OS, architecture, and installed Go version.
 
-Go and mise cache writes are disabled by default. Set `save-cache: true` on exactly one comprehensive caller job; the workflow still refuses to write those caches for pull requests or non-default branches. A successful default-branch run then seeds caches that later pull requests can restore. Other dependency caches retain their existing lockfile-based behavior.
+Cache writes are disabled by default. Set `save-cache: true` on exactly one comprehensive caller job; the workflow still refuses to write for pull requests, pull-request-target workflows, or non-default branches. A successful default-branch push or manual run then seeds mise, lockfile dependency, Go, and Playwright caches that later pull requests can restore.
 
 Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
 

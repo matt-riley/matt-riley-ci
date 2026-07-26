@@ -33,17 +33,37 @@ class UniversalCiCacheContractTest(unittest.TestCase):
         )
         self.assertEqual(
             self.steps_by_name["Install mise"]["with"]["cache_save"],
-            "${{ inputs.save-cache && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}",
+            "${{ inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}",
         )
 
-        for name in ("Save Go module cache", "Save Go build cache"):
+        save_steps = (
+            "Save pnpm store",
+            "Save npm cache",
+            "Save Go module cache",
+            "Save Go build cache",
+            "Save Playwright browser binaries",
+        )
+        for name in save_steps:
             condition = self.steps_by_name[name]["if"]
             self.assertIn("success()", condition)
             self.assertIn("inputs.save-cache", condition)
-            self.assertIn("github.event_name != 'pull_request'", condition)
+            self.assertIn("github.event_name == 'push'", condition)
+            self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+            self.assertNotIn("github.event_name != 'pull_request'", condition)
             self.assertIn("github.event.repository.default_branch", condition)
-            self.assertIn("hashFiles('go.mod') != ''", condition)
             self.assertIn("cache-hit != 'true'", condition)
+
+        for step in self.steps:
+            self.assertNotEqual(
+                step.get("uses"),
+                "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+            )
+
+        for name in ("Save Go module cache", "Save Go build cache"):
+            self.assertIn(
+                "hashFiles('go.mod') != ''",
+                self.steps_by_name[name]["if"],
+            )
 
     def test_go_modules_and_build_outputs_use_separate_cache_lifecycles(self):
         self.assertIn("Restore Go module cache", self.steps_by_name)
