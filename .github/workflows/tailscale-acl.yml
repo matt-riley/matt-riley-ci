@@ -1,0 +1,132 @@
+name: Tailscale ACL
+
+# GitOps for a tailnet policy file: validate and run the policy's own ACL tests
+# on pull requests, apply on merge to the default branch.
+#
+# Authentication is workload identity federation, so this workflow takes no
+# secrets at all. The client ID and audience are not sensitive, so callers pass
+# them as plain inputs; the runner mints its own OIDC token, which Tailscale
+# exchanges for a short-lived API token. Callers only need `id-token: write`.
+#
+# Policy files contain user and group identifiers, so the calling repository
+# should be private.
+
+on:
+  workflow_call:
+    inputs:
+      tailnet:
+        description: "Tailnet name, or '-' for the default tailnet of the credential"
+        required: false
+        default: "-"
+        type: string
+      oauth-client-id:
+        description: "Tailscale federated identity client ID (not a secret)"
+        required: true
+        type: string
+      audience:
+        description: "Audience the federated identity expects, e.g. api.tailscale.com/<client id> (not a secret)"
+        required: true
+        type: string
+      policy-file:
+        description: "Path to the HuJSON policy file, relative to the repository root"
+        required: false
+        default: "policy.hujson"
+        type: string
+      action:
+        description: "'test', 'apply', or '' to test on pull requests and apply on pushes to the default branch"
+        required: false
+        default: ""
+        type: string
+      runner:
+        description: "Runner label"
+        required: false
+        default: "ubuntu-latest"
+        type: string
+      timeout-minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: 10
+        type: number
+      cancel-in-progress:
+        description: "Cancel previous in-progress runs for same ref"
+        required: false
+        default: false
+        type: boolean
+      concurrency-suffix:
+        description: "Optional suffix to distinguish concurrency groups when this reusable workflow is called multiple times in one workflow"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  acl:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
+      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Resolve action
+        id: resolve
+        env:
+          REQUESTED: ${{ inputs.action }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          POLICY_FILE: ${{ inputs.policy-file }}
+        run: |
+          set -euo pipefail
+
+          case "$REQUESTED" in
+            test|apply)
+              resolved="$REQUESTED"
+              ;;
+            "")
+              # Applying only from the default branch keeps a merge the single
+              # way the tailnet changes. Everything else validates and stops.
+              if [ "$EVENT_NAME" = "push" ] && [ "$REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+                resolved="apply"
+              else
+                resolved="test"
+              fi
+              ;;
+            *)
+              echo "::error title=Invalid action::action must be 'test', 'apply', or '' for automatic selection, got '$REQUESTED'." >&2
+              exit 1
+              ;;
+          esac
+
+          if [ ! -f "$POLICY_FILE" ]; then
+            echo "::error title=Policy file not found::'$POLICY_FILE' does not exist in this repository. Set the policy-file input to its path." >&2
+            exit 1
+          fi
+
+          echo "action=$resolved" >> "$GITHUB_OUTPUT"
+          echo "Resolved action: $resolved (policy file: $POLICY_FILE)"
+
+      - name: Run Tailscale ACL ${{ steps.resolve.outputs.action }}
+        uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1.5.2
+        with:
+          oauth-client-id: ${{ inputs.oauth-client-id }}
+          audience: ${{ inputs.audience }}
+          tailnet: ${{ inputs.tailnet }}
+          policy-file: ${{ inputs.policy-file }}
+          action: ${{ steps.resolve.outputs.action }}
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Tailscale ACL summary"
+            echo "- action: \`${{ steps.resolve.outputs.action || 'unresolved' }}\`"
+            echo "- policy-file: \`${{ inputs.policy-file }}\`"
+            echo "- tailnet: \`${{ inputs.tailnet }}\`"
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

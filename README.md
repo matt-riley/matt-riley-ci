@@ -164,6 +164,40 @@ jobs:
 
 Artifact mode requires `artifact-run-id`, `artifact-name`, and `artifact-digest` together. Existing callers may omit all three fields for source-only dispatches. The GitHub App used by the infra repository must have Actions read access to the source repository so infra can download the exact artifact.
 
+### Tailscale ACL
+
+Validates a tailnet policy file and runs the policy's own ACL tests on pull requests, then applies it on merge to the default branch.
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  acl:
+    uses: matt-riley/matt-riley-ci/.github/workflows/tailscale-acl.yml@v2
+    with:
+      oauth-client-id: ${{ vars.TS_OAUTH_CLIENT_ID }}
+      audience: ${{ vars.TS_AUDIENCE }}
+      tailnet: "-"
+      policy-file: policy.hujson
+      action: ""
+      runner: ubuntu-latest
+      timeout-minutes: 10
+      cancel-in-progress: false
+      concurrency-suffix: ""
+```
+
+This workflow takes **no secrets**. Authentication is [workload identity federation][ts-wif]: the runner mints a short-lived OIDC token and Tailscale exchanges it for a short-lived API token, so nothing long-lived is stored. The client ID and audience are not sensitive, which is why they are inputs rather than secrets — pass them as repository variables. The caller must grant `id-token: write`.
+
+Create the federated identity in the Tailscale admin console with issuer `https://token.actions.githubusercontent.com` and a subject restricted to the calling repository, for example `repo:matt-riley/infra:*`. The audience is `api.tailscale.com/<client id>`.
+
+Leave `action` empty to test on pull requests and apply on pushes to the default branch. Set it to `test` or `apply` to force one — `test` is the right choice when something else, such as Terraform, is the applier, since two owners of the same policy will overwrite each other.
+
+Policy files contain user and group identifiers, so the calling repository should be private.
+
+[ts-wif]: https://tailscale.com/docs/features/workload-identity-federation
+
 ### Neovim Format
 
 Runs StyLua with a pinned release.
