@@ -94,9 +94,13 @@ Aube reads supported lockfiles in place (`aube-lock.yaml`, `package-lock.json`, 
 Builds a Node-based project and deploys it to Cloudflare Pages.
 
 ```yaml
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
-    uses: matt-riley/matt-riley-ci/.github/workflows/cloudflare-pages-deploy.yml@v1
+    uses: matt-riley/matt-riley-ci/.github/workflows/cloudflare-pages-deploy.yml@v3
     with:
       project-name: my-pages-project
       deploy-directory: dist
@@ -106,10 +110,23 @@ jobs:
       working-directory: .
       runner: ubuntu-latest
       timeout-minutes: 15
+      oidc-audience: ""
     secrets:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
+
+**Breaking in v3.** The job now requests `id-token: write`, and a reusable workflow cannot hold a permission its caller has not granted — so every caller must add the `permissions` block above, including callers that keep using the API token. Callers pinned to `@v1` or `@v2` are unaffected until they bump.
+
+`CLOUDFLARE_API_TOKEN` is now optional. Omit it and the workflow exchanges the runner's GitHub OIDC token for a short-lived Cloudflare API token, so no long-lived token is stored:
+
+```yaml
+    secrets:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+Pass it and that value is used unchanged, which lets a repository migrate on its own schedule. To use OIDC, create a Cloudflare API token with a Gateway condition on the `sub` claim matching the calling repository (for example `repo:matt-riley/my-app`). `oidc-audience` defaults to `https://github.com/<owner>`; set it if the Cloudflare token expects a different audience.
+
+`CLOUDFLARE_ACCOUNT_ID` stays required — OIDC replaces the credential, not the account selector.
 
 ### Request Infra Deploy
 
