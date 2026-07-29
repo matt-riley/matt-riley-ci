@@ -39,6 +39,7 @@ jobs:
           python -m unittest tests/request_infra_deploy_contract_test.py
           python -m unittest tests/contract_workflow_registration_test.py
           python -m unittest tests/ci_cache_contract_test.py
+          python -m unittest tests/cloudflare_pages_oidc_contract_test.py
 
   go-contract:
     uses: ./.github/workflows/ci.yml

@@ -42,10 +42,15 @@ on:
         required: false
         default: 15
         type: number
+      oidc-audience:
+        description: "Audience claim to request in the GitHub OIDC token, matched by the Cloudflare token's OIDC condition"
+        required: false
+        default: ""
+        type: string
     secrets:
       CLOUDFLARE_API_TOKEN:
-        description: "Cloudflare API token with Pages edit permission"
-        required: true
+        description: "Cloudflare API token with Pages edit permission. Omit to authenticate by OIDC instead."
+        required: false
       CLOUDFLARE_ACCOUNT_ID:
         description: "Cloudflare account ID"
         required: true
@@ -57,6 +62,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -95,10 +101,51 @@ jobs:
           esac
         working-directory: ${{ inputs.working-directory }}
 
+      - name: Resolve Cloudflare API token
+        id: cloudflare-auth
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OIDC_AUDIENCE: ${{ inputs.oidc-audience }}
+        run: |
+          set -euo pipefail
+
+          # Fall back to the long-lived secret while OIDC is being rolled out.
+          # Once the caller stops passing it, the OIDC path is the only path.
+          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+            echo "token=$CLOUDFLARE_API_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "mode=secret" >> "$GITHUB_OUTPUT"
+            echo "Using the CLOUDFLARE_API_TOKEN secret."
+            exit 0
+          fi
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error title=No Cloudflare credential::CLOUDFLARE_API_TOKEN was not supplied and no OIDC token is available. Grant 'id-token: write' in the calling workflow, or pass the secret." >&2
+            exit 1
+          fi
+
+          audience="${OIDC_AUDIENCE:-}"
+          if [ -z "$audience" ]; then
+            audience="https://github.com/${GITHUB_REPOSITORY_OWNER}"
+          fi
+
+          github_jwt="$(curl -sS -f -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience}" | jq -re .value)"
+
+          cloudflare_resp="$(curl -sS -f -X POST "https://api.cloudflare.com/client/v4/oauth/token" \
+            -H "Content-Type: application/json" \
+            -d "$(printf '{"grant_type":"urn:ietf:params:oauth:grant-type:token-exchange","subject_token":"%s","subject_token_type":"urn:ietf:params:oauth:token-type:jwt"}' "$github_jwt")")"
+
+          cf_token="$(jq -re '.result.access_token' <<< "$cloudflare_resp")"
+          echo "::add-mask::$cf_token"
+          echo "token=$cf_token" >> "$GITHUB_OUTPUT"
+          echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          echo "Exchanged the GitHub OIDC token for a short-lived Cloudflare token."
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          apiToken: ${{ steps.cloudflare-auth.outputs.token }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy ${{ inputs.deploy-directory }} --project-name=${{ inputs.project-name }}
           workingDirectory: ${{ inputs.working-directory }}
@@ -108,6 +155,7 @@ jobs:
         run: |
           {
             echo "### Cloudflare Pages Deploy summary"
+            echo "- auth: \`${{ steps.cloudflare-auth.outputs.mode || 'unresolved' }}\`"
             echo "- runner: \`${{ inputs.runner }}\`"
             echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
             echo "- project-name: \`${{ inputs.project-name }}\`"
