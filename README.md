@@ -8,6 +8,26 @@ Reusable GitHub Actions workflows for Matt Riley repositories.
 - Use `@v1.x.y` for fully pinned workflow behavior.
 - Breaking changes are released under a new major tag (for example `@v2`).
 
+Write version refs in backticks in commit bodies. release-please republishes
+those bodies verbatim into `CHANGELOG.md` and the release notes, where a bare
+`@v1` resolves as a mention of the GitHub user of that name.
+
+### Publishing the floating major tag
+
+`repository-release-please.yml` moves the floating `vN` tag after each release.
+That push needs a **`RELEASE_TAG_TOKEN`** repository secret — a PAT or GitHub
+App token with **workflows: write**.
+
+The default `GITHUB_TOKEN` cannot do it. It is a GitHub App token, and GitHub
+refuses to let an App token create or update a ref containing
+`.github/workflows` content without `workflows` permission. That is not a
+grantable scope in a workflow's `permissions:` block, so no amount of
+permission tuning fixes it, and this repository is nothing but workflows.
+
+Without the secret the release itself still succeeds and `vN.n.n` is published;
+only the floating `vN` tag is missing, so callers pinning `@vN` fail to resolve.
+The job fails loudly and says so rather than passing silently.
+
 ## Workflows
 
 ### Universal CI

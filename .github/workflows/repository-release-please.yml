@@ -26,14 +26,23 @@ jobs:
     permissions:
       contents: write
     steps:
+      # GITHUB_TOKEN is a GitHub App token, and GitHub refuses to let an App
+      # token create or update a ref carrying .github/workflows content without
+      # `workflows` permission — which is not a grantable scope in the
+      # `permissions:` block above, so it cannot be fixed there. This repository
+      # is nothing but workflows, so every major tag trips it. RELEASE_TAG_TOKEN
+      # is a PAT or App token that does hold `workflows`.
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
 
       - name: Move major tag
         env:
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
+          HAS_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN != '' }}
         run: |
           set -euo pipefail
 
@@ -47,7 +56,15 @@ jobs:
 
           git fetch --force --tags origin
           target_sha="$(git rev-list -n 1 "refs/tags/$TAG_NAME")"
-          current_sha="$(git ls-remote --tags origin "refs/tags/$major_tag" | awk '{print $1}')"
+
+          # ls-remote prints a second "^{}" line for annotated tags, so take the
+          # dereferenced value when present and never let two SHAs reach the
+          # comparison below.
+          current_sha="$(
+            git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" \
+              | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' \
+              | tail -n 1
+          )"
 
           if [ -z "$target_sha" ]; then
             echo "Could not resolve release tag $TAG_NAME" >&2
@@ -60,15 +77,38 @@ jobs:
           fi
 
           git tag -f "$major_tag" "$target_sha"
-          git push origin "refs/tags/$major_tag" --force
+
+          if git push origin "refs/tags/$major_tag" --force; then
+            echo "$major_tag now points at $TAG_NAME"
+            exit 0
+          fi
+
+          if [ "$HAS_TAG_TOKEN" != "true" ]; then
+            echo "::error title=Cannot publish $major_tag::Pushing $major_tag was rejected, and RELEASE_TAG_TOKEN is not set. The default GITHUB_TOKEN is a GitHub App token, which cannot create or update a ref containing .github/workflows without 'workflows' permission — a scope the permissions: block cannot grant. Add a RELEASE_TAG_TOKEN secret (PAT or App token with workflows write) and re-run. Until then callers pinning @$major_tag will not resolve." >&2
+          else
+            echo "::error title=Cannot publish $major_tag::Pushing $major_tag was rejected even with RELEASE_TAG_TOKEN set. Check that the token still has 'workflows' write and has not expired." >&2
+          fi
+          exit 1
 
       - name: Summary
         if: ${{ always() }}
         env:
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
+          HAS_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN != '' }}
         run: |
+          major_tag="${TAG_NAME%%.*}"
+
+          # Report what callers can actually pin, not what we intended to push.
+          if git ls-remote --exit-code --tags origin "refs/tags/$major_tag" >/dev/null 2>&1; then
+            published="yes"
+          else
+            published="no"
+          fi
+
           {
             echo "### Floating major tag summary"
             echo "- release tag: \`$TAG_NAME\`"
-            echo "- floating tag: \`${TAG_NAME%%.*}\`"
+            echo "- floating tag: \`$major_tag\`"
+            echo "- published: $published"
+            echo "- RELEASE_TAG_TOKEN configured: $HAS_TAG_TOKEN"
           } >> "$GITHUB_STEP_SUMMARY"
