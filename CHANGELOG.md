@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.0.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.4.1...v3.0.0) (2026-07-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* the deploy job requests `id-token: write`, and a reusable workflow cannot hold a permission its caller has not granted. Every caller must add `permissions: id-token: write`, including callers that keep passing CLOUDFLARE_API_TOKEN. Callers pinned to @v1 or @v2 are unaffected until they bump.
+
+### Features
+
+* add tailscale-acl reusable workflow ([#97](https://github.com/matt-riley/matt-riley-ci/issues/97)) ([cb8687d](https://github.com/matt-riley/matt-riley-ci/commit/cb8687d378f5bca6f14c4f8450f0f437b8146314))
+* authenticate Cloudflare Pages deploys by OIDC ([#98](https://github.com/matt-riley/matt-riley-ci/issues/98)) ([5cb8c0d](https://github.com/matt-riley/matt-riley-ci/commit/5cb8c0d9ccc5e79c3ef18514ef958aa457de6e0c))
+
+
+### Bug Fixes
+
+* refresh Go caches from trusted main runs ([#95](https://github.com/matt-riley/matt-riley-ci/issues/95)) ([be15491](https://github.com/matt-riley/matt-riley-ci/commit/be1549198ac2b0582dd19d0da8ef7872c2fb653b))
+
 ## [2.4.1](https://github.com/matt-riley/matt-riley-ci/compare/v2.4.0...v2.4.1) (2026-07-18)
 
 
