@@ -5,7 +5,7 @@
 
 ### ⚠ BREAKING CHANGES
 
-* the deploy job requests `id-token: write`, and a reusable workflow cannot hold a permission its caller has not granted. Every caller must add `permissions: id-token: write`, including callers that keep passing CLOUDFLARE_API_TOKEN. Callers pinned to @v1 or @v2 are unaffected until they bump.
+* the deploy job requests `id-token: write`, and a reusable workflow cannot hold a permission its caller has not granted. Every caller must add `permissions: id-token: write`, including callers that keep passing CLOUDFLARE_API_TOKEN. Callers pinned to `@v1` or `@v2` are unaffected until they bump.
 
 ### Features
 
