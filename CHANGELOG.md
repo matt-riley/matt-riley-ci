@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/matt-riley/matt-riley-ci/compare/v3.0.0...v3.0.1) (2026-07-31)
+
+
+### Bug Fixes
+
+* publish the floating major tag with a token that can ([#100](https://github.com/matt-riley/matt-riley-ci/issues/100)) ([495110b](https://github.com/matt-riley/matt-riley-ci/commit/495110bf7b565a1a97d4f1618901b3c839c79693))
+
 ## [3.0.0](https://github.com/matt-riley/matt-riley-ci/compare/v2.4.1...v3.0.0) (2026-07-29)
 
 
