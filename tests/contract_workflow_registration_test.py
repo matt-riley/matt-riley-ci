@@ -11,6 +11,7 @@ class ContractWorkflowRegistrationTest(unittest.TestCase):
         self.assertIn("tests/ci_cache_contract_test.py", workflow)
         self.assertIn("tests/tailscale_acl_contract_test.py", workflow)
         self.assertIn("tests/cloudflare_pages_oidc_contract_test.py", workflow)
+        self.assertIn("tests/major_tag_publish_contract_test.py", workflow)
 
 
 if __name__ == "__main__":
