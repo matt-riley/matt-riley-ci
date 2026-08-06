@@ -33,12 +33,30 @@ on:
         required: false
         default: 30
         type: number
+      tap-owner:
+        description: 'Owner of the Homebrew tap repository'
+        required: false
+        default: 'matt-riley'
+        type: string
+      tap-repo:
+        description: 'Homebrew tap repository; Homebrew publish is skipped when no tap token is available'
+        required: false
+        default: 'homebrew-tools'
+        type: string
+      tap-fail-if-missing-token:
+        description: 'Fail the release instead of skipping the Homebrew publish when no tap token is available'
+        required: false
+        default: false
+        type: boolean
     secrets:
       github-token:
         description: 'GitHub token passed to GoReleaser (falls back to github.token)'
         required: false
       homebrew-tap-token:
-        description: 'PAT with repo:write for the Homebrew tap repository'
+        description: 'Legacy PAT with repo:write for the Homebrew tap repository (prefer the GitHub App via private-key + vars.APP_ID)'
+        required: false
+      private-key:
+        description: 'GitHub App private key used to mint a short-lived Homebrew tap token (paired with the APP_ID repository variable)'
         required: false
 
 jobs:
@@ -63,16 +81,54 @@ jobs:
           cache: true
           cache-dependency-path: ${{ inputs.go-version-file }}
 
+      - name: Create GitHub App token for Homebrew tap
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.private-key }}
+          owner: ${{ inputs.tap-owner }}
+          repositories: ${{ inputs.tap-repo }}
+          permissions: |
+            contents: write
+
+      - name: Compute GoReleaser args
+        id: goreleaser-args
+        shell: bash
+        env:
+          TAP_TOKEN: ${{ steps.app-token.outputs.token || secrets.homebrew-tap-token || '' }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token || '' }}
+          TAP_OWNER: ${{ inputs.tap-owner }}
+          TAP_REPO: ${{ inputs.tap-repo }}
+          TAP_FAIL_IF_MISSING: ${{ inputs.tap-fail-if-missing-token }}
+        run: |
+          if [ -n "$TAP_TOKEN" ]; then
+            if [ -n "$APP_TOKEN" ]; then
+              echo "tap_source=github-app" >> "$GITHUB_OUTPUT"
+            else
+              echo "tap_source=pat" >> "$GITHUB_OUTPUT"
+            fi
+            echo "value=${{ inputs.args }}" >> "$GITHUB_OUTPUT"
+          elif [ "$TAP_FAIL_IF_MISSING" = "true" ]; then
+            echo "::error title=Homebrew tap token missing::No tap token available. Configure vars.APP_ID + secrets.PRIVATE_KEY (GitHub App installed on ${TAP_OWNER}/${TAP_REPO}) or pass the legacy secrets.homebrew-tap-token."
+            exit 1
+          else
+            echo "tap_source=none" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Homebrew tap publish skipped::No tap token available (vars.APP_ID + secrets.PRIVATE_KEY or secrets.homebrew-tap-token); the Homebrew formula will not be published."
+            echo "value=${{ inputs.args }} --skip=homebrew" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser
           version: ${{ inputs.goreleaser-version }}
-          args: ${{ inputs.args }}
+          args: ${{ steps.goreleaser-args.outputs.value }}
           workdir: ${{ inputs.working-directory }}
         env:
           GITHUB_TOKEN: ${{ secrets.github-token || github.token }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.homebrew-tap-token }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.homebrew-tap-token || '' }}
 
       - name: Summary
         if: ${{ always() }}
@@ -81,6 +137,8 @@ jobs:
             echo "### GoReleaser summary"
             echo "- runner: \`${{ inputs.runner }}\`"
             echo "- goreleaser-version: \`${{ inputs.goreleaser-version }}\`"
-            echo "- args: \`${{ inputs.args }}\`"
+            echo "- args: \`${{ steps.goreleaser-args.outputs.value || inputs.args }}\`"
             echo "- working-directory: \`${{ inputs.working-directory }}\`"
+            echo "- tap: \`${{ inputs.tap-owner }}/${{ inputs.tap-repo }}\`"
+            echo "- tap token source: \`${{ steps.goreleaser-args.outputs.tap_source || 'none' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
