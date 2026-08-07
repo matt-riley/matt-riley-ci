@@ -90,8 +90,7 @@ jobs:
           private-key: ${{ secrets.private-key }}
           owner: ${{ inputs.tap-owner }}
           repositories: ${{ inputs.tap-repo }}
-          permissions: |
-            contents: write
+          permission-contents: write
 
       - name: Compute GoReleaser args
         id: goreleaser-args
