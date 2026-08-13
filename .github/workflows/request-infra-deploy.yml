@@ -15,8 +15,8 @@ on:
       artifact-run-id:
         description: 'Actions run ID containing the immutable deployment artifact; 0 selects source-only mode'
         required: false
-        default: 0
-        type: number
+        default: '0'
+        type: string
       artifact-name:
         description: 'Exact Actions artifact name to deploy'
         required: false
