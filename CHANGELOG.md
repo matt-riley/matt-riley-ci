@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.1.0](https://github.com/matt-riley/matt-riley-ci/compare/v3.0.1...v3.1.0) (2026-09-04)
+
+
+### Features
+
+* mint homebrew tap token from GitHub App in goreleaser workflow ([6cc4949](https://github.com/matt-riley/matt-riley-ci/commit/6cc4949c39c22de22cc65f70305e2344416c3f50))
+
+
+### Bug Fixes
+
+* accept expression values for artifact-run-id input ([#104](https://github.com/matt-riley/matt-riley-ci/issues/104)) ([3a7b18f](https://github.com/matt-riley/matt-riley-ci/commit/3a7b18fc7be1a2b7ee2de806f2c631ca661ea6a9))
+* use permission-contents input for create-github-app-token ([2b0008a](https://github.com/matt-riley/matt-riley-ci/commit/2b0008a45ef931f133d0e6af65541d0292e56d82))
+
 ## [3.0.1](https://github.com/matt-riley/matt-riley-ci/compare/v3.0.0...v3.0.1) (2026-07-31)
 
 
