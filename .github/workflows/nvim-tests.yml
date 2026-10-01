@@ -10,7 +10,7 @@ name: Neovim Tests (mini.test)
       mini-version:
         description: 'Immutable mini.nvim commit SHA (default: v0.17.0)'
         required: false
-        default: b2be4d82551bf86867f3a8af2bdd483a82f2d384
+        default: a995fe9cd4193fb492b5df69175a351a74b3d36b
         type: string
       runner:
         description: Runner label

@@ -205,6 +205,13 @@ jobs:
         version: ${{ inputs.mise-version }}
         install_args: ${{ inputs.install-tools }}
         add_shims_to_path: false
+    - name: Expose installed tool binaries
+      shell: bash
+      run: |
+        mise bin-paths > "$RUNNER_TEMP/mise-bin-paths"
+        while IFS= read -r directory; do
+          if [ -d "$directory" ]; then printf '%s\n' "$directory" >> "$GITHUB_PATH"; fi
+        done < "$RUNNER_TEMP/mise-bin-paths"
     - name: Detect cache metadata
       id: cache-metadata
       if: ${{ inputs.cache }}

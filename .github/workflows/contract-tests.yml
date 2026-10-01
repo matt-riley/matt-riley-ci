@@ -30,6 +30,13 @@ jobs:
         install_args: actionlint
         add_shims_to_path: false
         cache_save: false
+    - name: Expose installed tool binaries
+      shell: bash
+      run: |
+        mise bin-paths > "$RUNNER_TEMP/mise-bin-paths"
+        while IFS= read -r directory; do
+          if [ -d "$directory" ]; then printf '%s\n' "$directory" >> "$GITHUB_PATH"; fi
+        done < "$RUNNER_TEMP/mise-bin-paths"
     - name: Install validation dependencies
       run: |
         python -m pip install --disable-pip-version-check -r requirements-dev.txt
@@ -46,6 +53,14 @@ jobs:
       coverage-path: coverage.out
       coverage-artifact-name: go-coverage
       build-command: go build -ldflags "-s -w" ./...
+  go-snapshot:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/go-goreleaser.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/go
+      snapshot: true
+      environment: ''
   go-lint:
     uses: ./.github/workflows/go-lint.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
@@ -140,6 +155,7 @@ jobs:
     needs:
     - validate
     - go
+    - go-snapshot
     - go-lint
     - go-security
     - node

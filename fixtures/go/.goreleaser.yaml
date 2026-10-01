@@ -1,0 +1,11 @@
+version: 2
+project_name: contract-fixture
+builds:
+  - id: smoke
+    main: .
+    goos: [linux]
+    goarch: [amd64]
+archives:
+  - formats: [tar.gz]
+changelog:
+  disable: true

@@ -28,6 +28,27 @@ def unique_mapping(loader, node, deep=False):
 WorkflowLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
 
 
+def call_permissions(path, seen=None):
+    seen = set() if seen is None else seen
+    if path in seen:
+        raise ValueError('Recursive local workflow call: ' + str(path))
+    seen = seen | {path}
+    target = yaml.load(path.read_text(), Loader=WorkflowLoader)
+    levels = {'none': 0, 'read': 1, 'write': 2}
+    required = {}
+    for job in target['jobs'].values():
+        declared = job.get('permissions', target.get('permissions', {}))
+        if not isinstance(declared, dict):
+            raise ValueError('Local callable workflows must declare permission mappings')
+        for key, level in declared.items():
+            required[key] = max(required.get(key, 0), levels[level])
+        use = job.get('uses', '')
+        if use.startswith(('./', '$/')):
+            for key, level in call_permissions(path.parent / pathlib.Path(use[2:]).name, seen).items():
+                required[key] = max(required.get(key, 0), level)
+    return required
+
+
 def validate(directory):
     errors = []
     files = sorted(set(directory.glob('*.yml')) | set(directory.glob('*.yaml')))
@@ -49,6 +70,16 @@ def validate(directory):
             for job_name, job in workflow['jobs'].items():
                 if 'uses' not in job and ('timeout-minutes' not in job or not (job.get('permissions') or workflow.get('permissions'))):
                     raise ValueError(job_name + ': explicit timeout and permissions required')
+                use = job.get('uses', '')
+                if use.startswith(('./', '$/')):
+                    target = directory / pathlib.Path(use[2:]).name
+                    if not target.is_file():
+                        raise ValueError(job_name + ': missing local workflow: ' + use)
+                    granted = job.get('permissions', workflow.get('permissions', {}))
+                    levels = {'none': 0, 'read': 1, 'write': 2}
+                    for key, minimum in call_permissions(target).items():
+                        if levels.get(granted.get(key, 'none'), 0) < minimum:
+                            raise ValueError(job_name + ': caller must grant ' + key + ' to ' + use)
                 uses = [job['uses']] if 'uses' in job else []
                 for step in job.get('steps', []):
                     if 'uses' in step:
@@ -66,7 +97,7 @@ def validate(directory):
                         valid = re.fullmatch(r'[^@]+@[0-9a-f]{40}', use)
                     if not valid:
                         raise ValueError(job_name + ': unpinned uses: ' + use)
-        except (ValueError, TypeError, AttributeError, yaml.YAMLError) as error:
+        except (ValueError, TypeError, AttributeError, yaml.YAMLError, OSError, KeyError) as error:
             errors.append(f'{path}: {error}')
     return errors
 

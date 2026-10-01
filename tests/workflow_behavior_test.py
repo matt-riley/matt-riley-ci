@@ -113,6 +113,56 @@ run = "test -f count"
         self.assertIn('ms-playwright', output)
         self.assertNotEqual(first_scope, re.findall(r'scope=(.*)', output)[-1])
 
+    def test_installed_tool_paths_expose_selected_runtime_without_shims(self):
+        selected = self.root / 'selected runtime' / 'bin'
+        selected.mkdir(parents=True)
+        (selected / 'node').write_text('#!/bin/sh\necho v24.0.0\n')
+        (selected / 'node').chmod(0o755)
+        self.stub('mise', 'print(' + repr(str(selected) + '\n' + str(self.root / 'missing')) + ')\n')
+        self.stub('node', "print('v22.0.0')\n")
+        for name in ['ci.yml', 'contract-tests.yml']:
+            self.okay(self.run_step(name, 'Expose installed tool binaries'))
+        paths = Path(self.env['GITHUB_PATH']).read_text().splitlines()
+        self.assertEqual([str(selected), str(selected)], paths)
+        selected_env = dict(self.env, PATH=paths[0] + os.pathsep + self.env['PATH'])
+        result = subprocess.run(['node', '--version'], env=selected_env, text=True, capture_output=True)
+        self.okay(result)
+        self.assertEqual('v24.0.0', result.stdout.strip())
+
+    def test_documented_callers_match_required_inputs_secrets_and_permissions(self):
+        examples = (ROOT / 'docs/examples.md').read_text()
+        documented = set()
+        for block in re.findall(r'```yaml\n(.*?)\n```', examples, re.S):
+            caller = yaml.safe_load(block)
+            for job in caller.get('jobs', {}).values():
+                use = job.get('uses', '')
+                if not use.startswith('matt-riley/matt-riley-ci/.github/workflows/'):
+                    continue
+                name = use.split('/')[-1].split('@')[0]
+                documented.add(name)
+                target = workflow(name)
+                contract = target.get('on', target.get(True))['workflow_call']
+                for kind, supplied in [('inputs', job.get('with', {})), ('secrets', job.get('secrets', {}))]:
+                    for key, spec in contract.get(kind, {}).items():
+                        if spec.get('required'):
+                            self.assertIn(key, supplied, name + ': missing ' + key)
+                    self.assertFalse(set(supplied) - set(contract.get(kind, {})), name + ': unknown ' + kind)
+                permissions = job.get('permissions', caller.get('permissions', {}))
+                rank = {'none': 0, 'read': 1, 'write': 2}
+                for callee in target['jobs'].values():
+                    for key, level in callee.get('permissions', target.get('permissions', {})).items():
+                        self.assertGreaterEqual(rank[permissions.get(key, 'none')], rank[level], name + ': ' + key)
+        expected = {p.name for p in (ROOT / '.github/workflows').glob('*.yml') if p.name != 'contract-tests.yml' and isinstance(workflow(p.name).get('on', workflow(p.name).get(True)), dict) and 'workflow_call' in workflow(p.name).get('on', workflow(p.name).get(True))}
+        self.assertEqual(expected, documented)
+
+    def test_goreleaser_snapshot_and_publish_arguments_fail_closed(self):
+        env = dict(SNAPSHOT='true', ARGS='release --clean', TAP_TOKEN='', APP_TOKEN='', TAP_OWNER='owner', TAP_REPO='tap', TAP_FAIL_IF_MISSING='true')
+        self.okay(self.run_step('go-goreleaser.yml', 'Validate release authority', **env))
+        self.okay(self.run_step('go-goreleaser.yml', 'goreleaser-args', **env))
+        self.assertIn('value=release --clean --snapshot --skip=publish', Path(self.env['GITHUB_OUTPUT']).read_text())
+        self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(env, SNAPSHOT='false', GITHUB_EVENT_NAME='pull_request')).returncode)
+        self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'goreleaser-args', **dict(env, ARGS='release\nvalue=bad')).returncode)
+
     def test_go_quoted_commands_and_arguments_are_preserved(self):
         self.stub('go', 'import json, sys\nprint(json.dumps(sys.argv[1:]))\n')
         result = self.run_step('go-ci.yml', 'build', BUILD_COMMAND='go build -ldflags "-s -w" ./...')
@@ -235,6 +285,20 @@ class Policy(unittest.TestCase):
             for text in ['', 'name: one\nname: two\n', 'on: push\njobs:\n  test:\n    uses: owner/repo/.github/workflows/test.yml@v1\n', 'on: push\njobs:\n  test:\n    timeout-minutes: 5\n    permissions: {contents: read}\n    steps:\n      - uses: docker://image:latest\n']:
                 file.write_text(text)
                 self.assertTrue(self.checks.validate(root), text)
+
+    def test_local_calls_reject_missing_permission_and_missing_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            callee = root / 'callee.yml'
+            callee.write_text('on: {workflow_call: {}}\njobs:\n  run:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions: {contents: read, packages: read}\n    steps: [{run: echo okay}]\n')
+            caller = root / 'caller.yml'
+            text = 'on: push\npermissions: {contents: read}\njobs:\n  run:\n    uses: ./.github/workflows/callee.yml\n'
+            caller.write_text(text)
+            self.assertTrue(self.checks.validate(root))
+            caller.write_text(text.replace('contents: read}', 'contents: read, packages: read}'))
+            self.assertEqual([], self.checks.validate(root))
+            callee.unlink()
+            self.assertTrue(self.checks.validate(root))
 
     def test_registration_and_release_gate_cover_all_checks_and_merge_queue(self):
         tests = workflow('contract-tests.yml')

@@ -73,11 +73,10 @@ name: Go GoReleaser
         required: false
       homebrew-tap-token:
         description: Legacy PAT with repo:write for the Homebrew tap repository (prefer the GitHub App via private-key
-          + vars.APP_ID)
+          + inputs.tap-app-id)
         required: false
       private-key:
-        description: GitHub App private key used to mint a short-lived Homebrew tap token (paired with the APP_ID
-          repository variable)
+        description: GitHub App private key used to mint a short-lived Homebrew tap token (paired with inputs.tap-app-id)
         required: false
 jobs:
   goreleaser:
@@ -166,12 +165,12 @@ jobs:
         ARGS: ${{ inputs.args }}
         SNAPSHOT: ${{ inputs.snapshot }}
       run: |
+        [[ "$ARGS" != *$'\n'* ]] || { echo '::error::args must be a single line'; exit 1; }
         if [ "$SNAPSHOT" = true ]; then
           echo "value=$ARGS --snapshot --skip=publish" >> "$GITHUB_OUTPUT"
           echo 'tap_source=snapshot' >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        [[ "$ARGS" != *$'\n'* ]] || { echo '::error::args must be a single line'; exit 1; }
         if [ -n "$TAP_TOKEN" ]; then
           if [ -n "$APP_TOKEN" ]; then
             echo "tap_source=github-app" >> "$GITHUB_OUTPUT"
@@ -180,11 +179,11 @@ jobs:
           fi
           echo "value=$ARGS" >> "$GITHUB_OUTPUT"
         elif [ "$TAP_FAIL_IF_MISSING" = "true" ]; then
-          echo "::error title=Homebrew tap token missing::No tap token available. Configure inputs.tap-app-id + secrets.PRIVATE_KEY (GitHub App installed on ${TAP_OWNER}/${TAP_REPO}) or pass the legacy secrets.homebrew-tap-token."
+          echo "::error title=Homebrew tap token missing::No tap token available. Configure inputs.tap-app-id + secrets.private-key (GitHub App installed on ${TAP_OWNER}/${TAP_REPO}) or pass the legacy secrets.homebrew-tap-token."
           exit 1
         else
           echo "tap_source=none" >> "$GITHUB_OUTPUT"
-          echo "::warning title=Homebrew tap publish skipped::No tap token available (inputs.tap-app-id + secrets.PRIVATE_KEY or secrets.homebrew-tap-token); the Homebrew formula will not be published."
+          echo "::warning title=Homebrew tap publish skipped::No tap token available (inputs.tap-app-id + secrets.private-key or secrets.homebrew-tap-token); the Homebrew formula will not be published."
           echo "value=$ARGS --skip=homebrew" >> "$GITHUB_OUTPUT"
         fi
     - name: Run GoReleaser

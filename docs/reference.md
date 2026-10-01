@@ -214,8 +214,8 @@ Go GoReleaser.
 ### Secrets
 
 - `github-token`: GitHub token passed to GoReleaser (falls back to github.token).
-- `homebrew-tap-token`: Legacy PAT with repo:write for the Homebrew tap repository (prefer the GitHub App via private-key + vars.APP_ID).
-- `private-key`: GitHub App private key used to mint a short-lived Homebrew tap token (paired with the APP_ID repository variable).
+- `homebrew-tap-token`: Legacy PAT with repo:write for the Homebrew tap repository (prefer the GitHub App via private-key + inputs.tap-app-id).
+- `private-key`: GitHub App private key used to mint a short-lived Homebrew tap token (paired with inputs.tap-app-id).
 
 ### Outputs
 
@@ -370,7 +370,7 @@ Neovim Tests (mini.test).
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | neovim-version | string | False | v0.12.5 | Exact Neovim release tag, or nightly for intentional compatibility testing |
-| mini-version | string | False | b2be4d82551bf86867f3a8af2bdd483a82f2d384 | Immutable mini.nvim commit SHA (default: v0.17.0) |
+| mini-version | string | False | a995fe9cd4193fb492b5df69175a351a74b3d36b | Immutable mini.nvim commit SHA (default: v0.17.0) |
 | runner | string | False | ubuntu-latest | Runner label |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | working-directory | string | False | . | Directory containing plugin and tests |

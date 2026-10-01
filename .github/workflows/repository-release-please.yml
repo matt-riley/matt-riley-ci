@@ -95,4 +95,7 @@ jobs:
         } >> "$GITHUB_STEP_SUMMARY"
     timeout-minutes: 10
   validate:
+    permissions:
+      contents: write
+      packages: write
     uses: ./.github/workflows/contract-tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
