@@ -35,7 +35,7 @@ class RequestInfraDeployContractTest(unittest.TestCase):
     def test_artifact_inputs_are_optional_and_all_or_none(self):
         inputs = self.call["inputs"]
         artifact_inputs = {
-            "artifact-run-id": ("number", 0),
+            "artifact-run-id": ("string", "0"),
             "artifact-name": ("string", ""),
             "artifact-digest": ("string", ""),
         }

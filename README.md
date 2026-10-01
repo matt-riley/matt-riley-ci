@@ -456,3 +456,21 @@ See the Release Please outputs above when chaining on `release_created` or `tag_
 - Publish non-breaking updates as `v1.x.y`.
 - Move the floating `v1` tag to the latest compatible `v1.x.y` release after validation.
 - Introduce `v2` only for intentionally breaking input/behavior changes.
+
+### Scoped infrastructure dispatch
+
+`request-app-deploy.yml` is the public reusable caller for private `matt-riley/infra` deployment receivers. Public repositories cannot call reusable workflows housed in private repositories. Pin this workflow to a reviewed commit when migrating callers.
+
+```yaml
+  deploy:
+    needs: [ci]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: matt-riley/matt-riley-ci/.github/workflows/request-app-deploy.yml@<reviewed-commit>
+    with:
+      app: example
+      dispatch-app-id: ${{ vars.INFRA_DISPATCH_APP_ID }}
+    secrets:
+      INFRA_DISPATCH_PRIVATE_KEY: ${{ secrets.INFRA_DISPATCH_PRIVATE_KEY }}
+```
+
+Use a dedicated App installed only on infra with repository contents write (required by repository dispatch); do not reuse an infrastructure administrator key. Receivers independently verify source CI and the exact revision. `production-branch` defaults to `main`. Binary callers additionally provide all of `artifact-run-id` (string), `artifact-name`, and `artifact-digest` (SHA-256); partial metadata is rejected. Configure the App and source secrets before merging caller changes. The existing `request-infra-deploy.yml` remains for unmigrated callers.

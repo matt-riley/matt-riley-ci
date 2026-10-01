@@ -37,6 +37,7 @@ jobs:
       - name: Test infra deploy contracts
         run: |
           python -m unittest tests/request_infra_deploy_contract_test.py
+          python -m unittest tests/request_app_deploy_contract_test.py
           python -m unittest tests/contract_workflow_registration_test.py
           python -m unittest tests/ci_cache_contract_test.py
           python -m unittest tests/tailscale_acl_contract_test.py
