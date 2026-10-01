@@ -1,0 +1,12 @@
+[tools]
+bun = "1.4.2"
+
+[tasks.install]
+run = "bun install --frozen-lockfile"
+
+[tasks.test]
+depends = ["install"]
+run = "bun test"
+
+[tasks.ci]
+depends = ["test"]

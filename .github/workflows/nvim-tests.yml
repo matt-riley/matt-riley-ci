@@ -1,61 +1,116 @@
 name: Neovim Tests (mini.test)
-
-on:
+'on':
   workflow_call:
     inputs:
       neovim-version:
-        description: "Neovim version to install (apt package)"
+        description: Exact Neovim release tag, or nightly for intentional compatibility testing
         required: false
-        default: "neovim"
+        default: v0.12.5
         type: string
       mini-version:
-        description: "mini.nvim tag or branch to install for tests"
+        description: 'Immutable mini.nvim commit SHA (default: v0.17.0)'
         required: false
-        default: "v0.17.0"
+        default: b2be4d82551bf86867f3a8af2bdd483a82f2d384
         type: string
       runner:
-        description: "Runner label"
+        description: Runner label
         required: false
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       timeout-minutes:
-        description: "Job timeout in minutes"
+        description: Job timeout in minutes
         required: false
         default: 15
         type: number
-      cancel-in-progress:
-        description: "Cancel previous in-progress runs for same ref"
+      working-directory:
+        description: Directory containing plugin and tests
+        type: string
         required: false
-        default: false
-        type: boolean
-
+        default: .
+      minimal-init:
+        description: Neovim init file relative to working-directory
+        type: string
+        required: false
+        default: tests/minimal_init.lua
+      test-directory:
+        description: Directory to collect test*.lua files from
+        type: string
+        required: false
+        default: tests
 jobs:
   tests:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Install Neovim
-        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.neovim-version }}
-      - name: Fetch mini.nvim
-        run: git clone --branch "${{ inputs.mini-version }}" --depth 1 https://github.com/echasnovski/mini.nvim "${GITHUB_WORKSPACE}/.ci/mini.nvim"
-      - name: Run tests
-        env:
-          MINI_PATH: ${{ github.workspace }}/.ci/mini.nvim
-        run: nvim --headless -u tests/minimal_init.lua -c "lua MiniTest.run({})" -c "qa"
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Neovim Tests summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- neovim-version: \`${{ inputs.neovim-version }}\`"
-            echo "- mini-version: \`${{ inputs.mini-version }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Install Neovim
+      env:
+        VERSION: ${{ inputs.neovim-version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64) platform=linux-x86_64;;
+          Linux/ARM64) platform=linux-arm64;;
+          macOS/X64) platform=macos-x86_64;;
+          macOS/ARM64) platform=macos-arm64;;
+          *) echo '::error::Neovim tests support Linux/macOS x64/arm64 runners'; exit 1;;
+        esac
+        [[ "$VERSION" = nightly || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+        install_dir="$RUNNER_TEMP/neovim"
+        mkdir -p "$install_dir"
+        gh release download "$VERSION" --repo neovim/neovim --pattern "nvim-$platform.tar.gz" --dir "$install_dir"
+        tar -xzf "$install_dir/nvim-$platform.tar.gz" -C "$install_dir"
+        echo "$install_dir/nvim-$platform/bin" >> "$GITHUB_PATH"
+      shell: bash
+    - name: Fetch pinned mini.nvim
+      env:
+        MINI_SHA: ${{ inputs.mini-version }}
+      run: |
+        [[ "$MINI_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::mini-version must be an immutable commit SHA'; exit 1; }
+        mini_dir="$RUNNER_TEMP/mini.nvim"
+        git init "$mini_dir"
+        git -C "$mini_dir" remote add origin https://github.com/nvim-mini/mini.nvim.git
+        git -C "$mini_dir" fetch --depth=1 origin "$MINI_SHA"
+        git -C "$mini_dir" checkout --detach FETCH_HEAD
+        test "$(git -C "$mini_dir" rev-parse HEAD)" = "$MINI_SHA"
+      shell: bash
+    - name: Run tests
+      id: tests
+      env:
+        MINI_PATH: ${{ runner.temp }}/mini.nvim
+        MINIMAL_INIT: ${{ inputs.minimal-init }}
+        TEST_DIRECTORY: ${{ inputs.test-directory }}
+      run: |
+        test -f "$MINIMAL_INIT"
+        test -d "$TEST_DIRECTORY"
+        python3 - <<'PY'
+        import os, pathlib
+        if not list(pathlib.Path(os.environ['TEST_DIRECTORY']).glob('test*.lua')): raise SystemExit('No test files found')
+        PY
+        nvim --headless -u "$MINIMAL_INIT" -c 'lua MiniTest.run({ collect = { find_files = function() return vim.fn.glob(os.getenv("TEST_DIRECTORY") .. "/test*.lua", false, true) end } })'
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Neovim tests
+        FIELD_0: ${{ steps.tests.outcome }}
+        FIELD_1: ${{ inputs.neovim-version }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Tests: %s\n" "$FIELD_0"
+          printf -- "- Neovim: %s\n" "$FIELD_1"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}

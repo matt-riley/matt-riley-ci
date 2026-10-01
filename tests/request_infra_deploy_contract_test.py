@@ -26,7 +26,7 @@ class RequestInfraDeployContractTest(unittest.TestCase):
             data, "Validate artifact configuration"
         ).get("run", "")
         match = re.search(
-            r"python - <<'PY' \| curl.*?\n(.*?)\n\s*PY\n?",
+            r"python3 - <<'PY'[^\n]*\n(.*?)\n\s*PY\n?",
             self.dispatch_run,
             re.S,
         )

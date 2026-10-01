@@ -1,51 +1,83 @@
 name: Neovim Lint (luacheck)
-
-on:
+'on':
   workflow_call:
     inputs:
       paths:
-        description: "Space-separated paths to lint"
+        description: Shell-style quoted path list, passed as arguments without shell evaluation
         required: false
-        default: "lua/ plugin/ tests/"
+        default: lua/ plugin/ tests/
         type: string
       runner:
-        description: "Runner label"
+        description: Runner label
         required: false
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       timeout-minutes:
-        description: "Job timeout in minutes"
+        description: Job timeout in minutes
         required: false
         default: 15
         type: number
-      cancel-in-progress:
-        description: "Cancel previous in-progress runs for same ref"
+      working-directory:
+        description: Directory containing Lua sources and tool configuration
+        type: string
         required: false
-        default: false
-        type: boolean
-
+        default: .
+      luacheck-version:
+        description: Pinned luacheck release
+        type: string
+        required: false
+        default: v1.2.0
 jobs:
   luacheck:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Install luacheck
-        run: sudo apt-get update && sudo apt-get install -y lua-check
-      - name: Run luacheck
-        run: luacheck ${{ inputs.paths }}
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Neovim Lint summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- paths: \`${{ inputs.paths }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Install luacheck
+      env:
+        VERSION: ${{ inputs.luacheck-version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        [ "$RUNNER_OS/$RUNNER_ARCH" = Linux/X64 ] || { echo '::error::Standalone luacheck supports Linux x64; use Universal CI for other platforms'; exit 1; }
+        [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+        install_dir="$RUNNER_TEMP/luacheck-bin"
+        mkdir -p "$install_dir"
+        gh release download "$VERSION" --repo lunarmodules/luacheck --pattern luacheck --dir "$install_dir"
+        chmod +x "$install_dir/luacheck"
+        echo "$install_dir" >> "$GITHUB_PATH"
+      shell: bash
+    - name: Check luacheck
+      id: check
+      env:
+        SOURCE_PATHS: ${{ inputs.paths }}
+      run: |
+        python3 - <<'PY'
+        import os, shlex, subprocess
+        paths = shlex.split(os.environ['SOURCE_PATHS'])
+        if not paths or any(p.startswith('-') for p in paths): raise SystemExit('At least one source path is required; options are not accepted in paths')
+        subprocess.run(['luacheck'] + paths, check=True)
+        PY
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: luacheck
+        FIELD_0: ${{ steps.check.outcome }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Check: %s\n" "$FIELD_0"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}

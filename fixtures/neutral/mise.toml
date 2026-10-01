@@ -1,0 +1,3 @@
+# No language runtime or library-provided tasks required.
+[tasks.ci]
+run = "test -f mise.toml && printf 'neutral consumer passed\\n'"

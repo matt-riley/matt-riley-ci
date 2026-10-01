@@ -1,141 +1,168 @@
-name: Reusable Workflow Contract Tests
-
-on:
-  pull_request:
-    paths:
-      - ".github/workflows/*.yml"
-      - "fixtures/**"
-      - "tests/**"
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/*.yml"
-      - "fixtures/**"
-      - "tests/**"
-
+name: Workflow checks
+'on':
+  workflow_call:
+    outputs:
+      tested_sha:
+        description: Exact validated revision
+        value: ${{ jobs.checks.outputs.tested_sha }}
+  pull_request: null
+  merge_group: null
+  workflow_dispatch: null
 permissions:
   contents: read
-  packages: read
-
 jobs:
-  infra-deploy-contract:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.x"
-
-      - name: Install contract dependencies
-        run: python -m pip install --disable-pip-version-check --quiet pyyaml
-
-      - name: Test infra deploy contracts
-        run: |
-          python -m unittest tests/request_infra_deploy_contract_test.py
-          python -m unittest tests/request_app_deploy_contract_test.py
-          python -m unittest tests/contract_workflow_registration_test.py
-          python -m unittest tests/ci_cache_contract_test.py
-          python -m unittest tests/tailscale_acl_contract_test.py
-          python -m unittest tests/cloudflare_pages_oidc_contract_test.py
-          python -m unittest tests/major_tag_publish_contract_test.py
-
-  go-contract:
-    uses: ./.github/workflows/ci.yml
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      with:
+        python-version: '3.14'
+    - name: Install actionlint
+      uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea
+      with:
+        version: 2026.9.18
+        install_args: actionlint
+        add_shims_to_path: false
+        cache_save: false
+    - name: Install validation dependencies
+      run: |
+        python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      shell: bash
+    - name: Validate and test workflow contracts
+      run: |
+        python scripts/check.py
+      shell: bash
+  go:
+    uses: ./.github/workflows/go-ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
+      working-directory: fixtures/go
+      test-args: -coverprofile=coverage.out
+      coverage-path: coverage.out
+      coverage-artifact-name: go-coverage
+      build-command: go build -ldflags "-s -w" ./...
+  go-lint:
+    uses: ./.github/workflows/go-lint.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/go
+  go-security:
+    uses: ./.github/workflows/go-security.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/go
+  node:
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/node
+      install-tools: node
       test: true
-      vet: true
-      fmt: true
-      task-prefix: "go-"
-      task-env: |
-        MISE_GO_WORKING_DIR=fixtures/go
-      concurrency-suffix: go-smoke
-      cancel-in-progress: false
-
-  go-build-contract:
-    uses: ./.github/workflows/ci.yml
-    with:
       build: true
-      task-prefix: "go-"
+      task-jobs: 4
       task-env: |
-        MISE_GO_WORKING_DIR=fixtures/go
-        MISE_GO_BUILD_COMMAND=go test -c -o /tmp/workflow-fixture.test .
-      concurrency-suffix: go-build
-      cancel-in-progress: false
-
-  go-coverage-contract:
-    uses: ./.github/workflows/ci.yml
-    with:
-      test: true
-      task-prefix: "go-"
-      task-env: |
-        MISE_GO_WORKING_DIR=fixtures/go
-        MISE_GO_TEST_COMMAND=go test -coverprofile=coverage.out ./...
-      concurrency-suffix: go-coverage
-      cancel-in-progress: false
-
-  go-lint-contract:
-    needs: go-contract
-    uses: ./.github/workflows/ci.yml
-    with:
-      lint: true
-      task-prefix: "go-"
-      task-env: |
-        MISE_GO_WORKING_DIR=fixtures/go
-      concurrency-suffix: go-lint
-      cancel-in-progress: false
-
-  node-contract:
-    uses: ./.github/workflows/ci.yml
-    with:
-      install: true
-      test: true
-      task-prefix: "node-"
-      task-env: |
-        MISE_NODE_WORKING_DIR=fixtures/node
-        MISE_NODE_PACKAGE_MANAGER=npm
-      concurrency-suffix: node-smoke
-      cancel-in-progress: false
-
-  node-build-contract:
-    uses: ./.github/workflows/ci.yml
-    with:
-      install: true
-      build: true
-      task-prefix: "node-"
-      task-env: |
-        MISE_NODE_WORKING_DIR=fixtures/node
-        MISE_NODE_PACKAGE_MANAGER=npm
         API_ENDPOINT_URL=https://example.test
-      concurrency-suffix: node-build
-      cancel-in-progress: false
-
-  node-custom-test-contract:
-    uses: ./.github/workflows/ci.yml
+      artifact-path: dist
+      artifact-name: site-fixture
+  bun:
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
-      install: true
-      test: true
-      task-prefix: "node-"
-      task-env: |
-        MISE_NODE_WORKING_DIR=fixtures/node
-        MISE_NODE_PACKAGE_MANAGER=npm
-        MISE_NODE_TEST_SCRIPT=test:ci
-      concurrency-suffix: node-custom-test
-      cancel-in-progress: false
-
-  bun-contract:
-    uses: ./.github/workflows/ci.yml
+      working-directory: fixtures/bun
+      install-tools: bun
+  neutral:
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
-      install: true
-      lint: true
-      test: true
-      task-prefix: "bun-"
-      task-env: |
-        MISE_BUN_WORKING_DIR=fixtures/bun
-        MISE_BUN_FROZEN_LOCKFILE=false
-      concurrency-suffix: bun-smoke
-      cancel-in-progress: false
+      working-directory: fixtures/neutral
+      install-tools: actionlint
+      cache: false
+  aube:
+    uses: ./.github/workflows/aube-ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/node
+      run-lint: false
+      run-build: true
+      build-env: |
+        API_ENDPOINT_URL=https://example.test
+  docker:
+    uses: ./.github/workflows/docker-ghcr-publish.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    permissions:
+      contents: read
+      packages: write
+    with:
+      context: fixtures/docker
+      push: false
+      load: true
+      provenance: false
+      sbom: false
+  nvim-format:
+    uses: ./.github/workflows/nvim-format.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/nvim
+      paths: lua tests
+  nvim-lint:
+    uses: ./.github/workflows/nvim-lint.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/nvim
+      paths: lua tests
+  nvim-tests:
+    uses: ./.github/workflows/nvim-tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/nvim
+  artifacts:
+    needs:
+    - node
+    - go
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Download build output
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: site-fixture
+        path: site
+    - name: Download coverage
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: go-coverage
+        path: coverage
+    - name: Check handoff
+      run: |
+        test -s site/index.html
+        test -s coverage/coverage.out
+      shell: bash
+  checks:
+    if: ${{ always() }}
+    needs:
+    - validate
+    - go
+    - go-lint
+    - go-security
+    - node
+    - bun
+    - neutral
+    - aube
+    - docker
+    - nvim-format
+    - nvim-lint
+    - nvim-tests
+    - artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tested_sha: ${{ steps.result.outputs.sha }}
+    steps:
+    - name: Require every check
+      id: result
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+        SHA: ${{ github.sha }}
+      run: |
+        python3 - <<'PY'
+        import json, os
+        results = json.loads(os.environ['RESULTS'])
+        if any(job['result'] != 'success' for job in results.values()): raise SystemExit('A required check failed, was cancelled, or skipped')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('sha=' + os.environ['SHA'] + '\n')
+        PY
+      shell: bash

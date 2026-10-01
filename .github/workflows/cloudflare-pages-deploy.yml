@@ -1,165 +1,125 @@
 name: Cloudflare Pages Deploy
-
-on:
+'on':
   workflow_call:
     inputs:
       project-name:
-        description: "Cloudflare Pages project name"
+        description: Cloudflare Pages project
+        type: string
         required: true
+      artifact-name:
+        description: Build artifact from an earlier job in this same workflow run
         type: string
+        required: true
       deploy-directory:
-        description: "Directory to deploy"
-        required: false
-        default: "dist"
+        description: Directory within the downloaded artifact
         type: string
-      node-version:
-        description: "Node.js version"
         required: false
-        default: "22"
+        default: .
+      branch:
+        description: Pages deployment branch; empty uses the trusted source branch
         type: string
-      package-manager:
-        description: "Package manager (npm, pnpm, yarn)"
         required: false
-        default: "pnpm"
+        default: ''
+      environment:
+        description: Protected GitHub deployment environment
         type: string
-      pnpm-version:
-        description: "Pinned pnpm version (only used when package-manager=pnpm)"
         required: false
-        default: ""
+        default: production
+      wrangler-version:
+        description: Pinned Wrangler CLI release
         type: string
-      working-directory:
-        description: "Directory to run commands in"
         required: false
-        default: "."
-        type: string
+        default: 4.146.0
       runner:
-        description: "Runner label"
-        required: false
-        default: "ubuntu-latest"
+        description: Linux runner label
         type: string
+        required: false
+        default: ubuntu-latest
       timeout-minutes:
-        description: "Job timeout in minutes"
+        description: Job timeout
+        type: number
         required: false
         default: 15
-        type: number
-      oidc-audience:
-        description: "Audience claim to request in the GitHub OIDC token, matched by the Cloudflare token's OIDC condition"
-        required: false
-        default: ""
-        type: string
     secrets:
       CLOUDFLARE_API_TOKEN:
-        description: "Cloudflare API token with Pages edit permission. Omit to authenticate by OIDC instead."
-        required: false
-      CLOUDFLARE_ACCOUNT_ID:
-        description: "Cloudflare account ID"
+        description: Account-scoped Cloudflare API token with Pages edit permission
         required: true
-
+      CLOUDFLARE_ACCOUNT_ID:
+        description: Cloudflare account ID
+        required: true
+    outputs:
+      deployment_url:
+        description: Published deployment URL
+        value: ${{ jobs.deploy.outputs.deployment_url }}
 jobs:
   deploy:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
-      deployments: write
-      id-token: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Install pnpm (default)
-        if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version == '' }}
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-
-      - name: Install pnpm (pinned)
-        if: ${{ inputs.package-manager == 'pnpm' && inputs.pnpm-version != '' }}
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: ${{ inputs.pnpm-version }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.package-manager }}
-
-      - name: Install dependencies
-        run: |
-          case "${{ inputs.package-manager }}" in
-            npm) npm ci ;;
-            pnpm) pnpm install --frozen-lockfile ;;
-            yarn) yarn install --frozen-lockfile ;;
-          esac
-        working-directory: ${{ inputs.working-directory }}
-
-      - name: Build
-        run: |
-          case "${{ inputs.package-manager }}" in
-            npm) npm run build ;;
-            pnpm) pnpm run build ;;
-            yarn) yarn run build ;;
-          esac
-        working-directory: ${{ inputs.working-directory }}
-
-      - name: Resolve Cloudflare API token
-        id: cloudflare-auth
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          OIDC_AUDIENCE: ${{ inputs.oidc-audience }}
-        run: |
-          set -euo pipefail
-
-          # Fall back to the long-lived secret while OIDC is being rolled out.
-          # Once the caller stops passing it, the OIDC path is the only path.
-          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "::add-mask::$CLOUDFLARE_API_TOKEN"
-            echo "token=$CLOUDFLARE_API_TOKEN" >> "$GITHUB_OUTPUT"
-            echo "mode=secret" >> "$GITHUB_OUTPUT"
-            echo "Using the CLOUDFLARE_API_TOKEN secret."
-            exit 0
-          fi
-
-          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-            echo "::error title=No Cloudflare credential::CLOUDFLARE_API_TOKEN was not supplied and no OIDC token is available. Grant 'id-token: write' in the calling workflow, or pass the secret." >&2
-            exit 1
-          fi
-
-          audience="${OIDC_AUDIENCE:-}"
-          if [ -z "$audience" ]; then
-            audience="https://github.com/${GITHUB_REPOSITORY_OWNER}"
-          fi
-
-          github_jwt="$(curl -sS -f -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience}" | jq -re .value)"
-
-          cloudflare_resp="$(curl -sS -f -X POST "https://api.cloudflare.com/client/v4/oauth/token" \
-            -H "Content-Type: application/json" \
-            -d "$(printf '{"grant_type":"urn:ietf:params:oauth:grant-type:token-exchange","subject_token":"%s","subject_token_type":"urn:ietf:params:oauth:token-type:jwt"}' "$github_jwt")")"
-
-          cf_token="$(jq -re '.result.access_token' <<< "$cloudflare_resp")"
-          echo "::add-mask::$cf_token"
-          echo "token=$cf_token" >> "$GITHUB_OUTPUT"
-          echo "mode=oidc" >> "$GITHUB_OUTPUT"
-          echo "Exchanged the GitHub OIDC token for a short-lived Cloudflare token."
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
-        with:
-          apiToken: ${{ steps.cloudflare-auth.outputs.token }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ${{ inputs.deploy-directory }} --project-name=${{ inputs.project-name }}
-          workingDirectory: ${{ inputs.working-directory }}
-
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Cloudflare Pages Deploy summary"
-            echo "- auth: \`${{ steps.cloudflare-auth.outputs.mode || 'unresolved' }}\`"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- project-name: \`${{ inputs.project-name }}\`"
-            echo "- deploy-directory: \`${{ inputs.deploy-directory }}\`"
-            echo "- working-directory: \`${{ inputs.working-directory }}\`"
-            echo "- package-manager: \`${{ inputs.package-manager }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Validate deployment source
+      env:
+        PROJECT: ${{ inputs.project-name }}
+        DIRECTORY: ${{ inputs.deploy-directory }}
+        BRANCH: ${{ inputs.branch }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        python3 - <<'PY'
+        import os, pathlib, re
+        e = os.environ
+        if e['RUNNER_OS'] != 'Linux': raise SystemExit('Pages deployment supports Linux runners')
+        if e['GITHUB_EVENT_NAME'] not in ['push', 'workflow_dispatch'] or e['GITHUB_REF'] != 'refs/heads/' + e['DEFAULT_BRANCH']:
+            raise SystemExit('Deployments require a trusted default-branch push or manual run')
+        if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', e['PROJECT']): raise SystemExit('Invalid Pages project name')
+        path = pathlib.PurePosixPath(e['DIRECTORY'])
+        if path.is_absolute() or '..' in path.parts or not re.fullmatch(r'[A-Za-z0-9_./-]+', e['DIRECTORY']): raise SystemExit('Invalid deploy-directory')
+        branch = e['BRANCH'] or e['GITHUB_REF_NAME']
+        if not re.fullmatch(r'[A-Za-z0-9_./-]+', branch): raise SystemExit('Invalid branch')
+        with open(e['GITHUB_OUTPUT'], 'a') as out: out.write('branch=' + branch + '\n')
+        PY
+      id: source
+      shell: bash
+    - name: Download built site
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/pages-site
+    - name: Set up deployment runtime
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      with:
+        node-version: '24'
+        package-manager-cache: false
+    - name: Deploy to Cloudflare Pages
+      id: deploy
+      uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        wranglerVersion: ${{ inputs.wrangler-version }}
+        workingDirectory: ${{ runner.temp }}/pages-site
+        command: pages deploy ${{ inputs.deploy-directory }} --project-name=${{ inputs.project-name }} --branch=${{
+          steps.source.outputs.branch }} --commit-hash=${{ github.sha }}
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Cloudflare Pages
+        FIELD_0: ${{ steps.deploy.outcome }}
+        FIELD_1: ${{ steps.deploy.outputs.deployment-url }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Deploy: %s\n" "$FIELD_0"
+          printf -- "- URL: %s\n" "$FIELD_1"
+        } >> "$GITHUB_STEP_SUMMARY"
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    outputs:
+      deployment_url: ${{ steps.deploy.outputs.deployment-url }}
+    concurrency:
+      group: cloudflare-pages:${{ github.repository }}:${{ inputs.project-name }}:${{ inputs.environment }}
+      cancel-in-progress: false

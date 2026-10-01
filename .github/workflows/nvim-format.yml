@@ -1,63 +1,90 @@
 name: Neovim Format (stylua)
-
-on:
+'on':
   workflow_call:
     inputs:
       paths:
-        description: "Space-separated paths to check"
+        description: Shell-style quoted path list, passed as arguments without shell evaluation
         required: false
-        default: "lua/ plugin/ tests/"
+        default: lua/ plugin/ tests/
         type: string
       runner:
-        description: "Runner label"
+        description: Runner label
         required: false
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       stylua-version:
-        description: "StyLua version to install"
-        required: false
-        default: "v2.4.0"
+        description: Pinned stylua release
         type: string
+        required: false
+        default: v2.4.0
       timeout-minutes:
-        description: "Job timeout in minutes"
+        description: Job timeout in minutes
         required: false
         default: 15
         type: number
-      cancel-in-progress:
-        description: "Cancel previous in-progress runs for same ref"
+      working-directory:
+        description: Directory containing Lua sources and tool configuration
+        type: string
         required: false
-        default: false
-        type: boolean
-
+        default: .
 jobs:
   stylua:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Install stylua
-        run: |
-          install_dir="$RUNNER_TEMP/stylua-bin"
-          mkdir -p "$install_dir"
-          curl -fsSL "https://github.com/JohnnyMorganz/StyLua/releases/download/${{ inputs.stylua-version }}/stylua-linux-x86_64.zip" -o "$RUNNER_TEMP/stylua.zip"
-          unzip -q "$RUNNER_TEMP/stylua.zip" -d "$install_dir"
-          chmod +x "$install_dir/stylua"
-          echo "$install_dir" >> "$GITHUB_PATH"
-      - name: Check formatting
-        run: stylua --check ${{ inputs.paths }}
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Neovim Format summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- paths: \`${{ inputs.paths }}\`"
-            echo "- stylua-version: \`${{ inputs.stylua-version }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Install stylua
+      env:
+        VERSION: ${{ inputs.stylua-version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64) asset=stylua-linux-x86_64.zip;;
+          Linux/ARM64) asset=stylua-linux-aarch64.zip;;
+          macOS/X64) asset=stylua-macos-x86_64.zip;;
+          macOS/ARM64) asset=stylua-macos-aarch64.zip;;
+          *) echo '::error::StyLua supports Linux/macOS x64/arm64 runners'; exit 1;;
+        esac
+        [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+        install_dir="$RUNNER_TEMP/stylua-bin"
+        mkdir -p "$install_dir"
+        gh release download "$VERSION" --repo JohnnyMorganz/StyLua --pattern "$asset" --dir "$install_dir"
+        unzip -q "$install_dir/$asset" -d "$install_dir"
+        chmod +x "$install_dir/stylua"
+        echo "$install_dir" >> "$GITHUB_PATH"
+      shell: bash
+    - name: Check stylua
+      id: check
+      env:
+        SOURCE_PATHS: ${{ inputs.paths }}
+      run: |
+        python3 - <<'PY'
+        import os, shlex, subprocess
+        paths = shlex.split(os.environ['SOURCE_PATHS'])
+        if not paths or any(p.startswith('-') for p in paths): raise SystemExit('At least one source path is required; options are not accepted in paths')
+        subprocess.run(['stylua', '--check'] + paths, check=True)
+        PY
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: stylua
+        FIELD_0: ${{ steps.check.outcome }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Check: %s\n" "$FIELD_0"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}

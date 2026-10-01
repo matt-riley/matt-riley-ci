@@ -37,6 +37,7 @@ class RequestAppDeployContractTest(unittest.TestCase):
             gh.write_text('#!/bin/sh\ncat\n')
             gh.chmod(0o755)
             env = dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH'], APP='waffle', SOURCE_REPO='matt-riley/waffle', SOURCE_SHA='a' * 40, SOURCE_REF='refs/heads/main', RUN_ID='', ARTIFACT_NAME='', ARTIFACT_DIGEST='')
+            env['GITHUB_OUTPUT'] = str(Path(directory, 'outputs'))
             env.update(overrides)
             return subprocess.run(['bash', '-c', self.script], env=env, text=True, capture_output=True)
 

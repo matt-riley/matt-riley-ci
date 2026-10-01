@@ -1,69 +1,107 @@
 name: Request application deployment
-
-"on":
+'on':
   workflow_call:
     inputs:
       app:
         required: true
         type: string
+        description: App identifier allowlisted by matt-riley/infra
       production-branch:
         default: main
         type: string
+        description: Trusted source deployment branch
       dispatch-app-id:
         required: true
         type: string
+        description: GitHub App ID installed only on matt-riley/infra
       artifact-run-id:
         default: ''
         type: string
+        description: Optional same-source artifact run ID as a string; pass name and digest together
       artifact-name:
         default: ''
         type: string
+        description: Exact immutable artifact name
       artifact-digest:
         default: ''
         type: string
+        description: Lowercase SHA-256 artifact digest
+      environment:
+        description: Optional protected deployment environment
+        type: string
+        required: false
+        default: ''
     secrets:
       INFRA_DISPATCH_PRIVATE_KEY:
         required: true
-
+        description: Private key matching dispatch-app-id
+    outputs:
+      dispatched:
+        description: dispatched
+        value: ${{ jobs.request.outputs.dispatched }}
+      source_sha:
+        description: source sha
+        value: ${{ jobs.request.outputs.source_sha }}
 permissions:
   contents: read
-
 jobs:
   request:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', inputs.production-branch)
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}',
+      inputs.production-branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Mint dispatch-only token
-        id: token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ inputs.dispatch-app-id }}
-          private-key: ${{ secrets.INFRA_DISPATCH_PRIVATE_KEY }}
-          owner: matt-riley
-          repositories: infra
-          permission-contents: write
-      - name: Request exact source revision
-        shell: bash
-        env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
-          APP: ${{ inputs.app }}
-          SOURCE_REPO: ${{ github.repository }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REF: ${{ github.ref }}
-          RUN_ID: ${{ inputs.artifact-run-id }}
-          ARTIFACT_NAME: ${{ inputs.artifact-name }}
-          ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
-        run: |
-          set -euo pipefail
-          [[ "$APP" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || exit 1
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          if [[ -n "$RUN_ID$ARTIFACT_NAME$ARTIFACT_DIGEST" ]]; then
-            [[ "$RUN_ID" =~ ^[1-9][0-9]*$ && -n "$ARTIFACT_NAME" && "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          fi
-          jq -n \
-            --arg app "$APP" --arg repo "$SOURCE_REPO" --arg sha "$SOURCE_SHA" --arg ref "$SOURCE_REF" \
-            --arg run "$RUN_ID" --arg name "$ARTIFACT_NAME" --arg digest "$ARTIFACT_DIGEST" \
-            '{event_type:"deploy-app",client_payload:({app:$app,app_id:$app,source_repo:$repo,source_sha:$sha,ref:$ref} +
-              (if $run == "" then {} else {artifact_run_id:$run,artifact_name:$name,artifact_digest:$digest} end))}' |
-            gh api --method POST repos/matt-riley/infra/dispatches --input -
+    - name: Mint dispatch-only token
+      id: token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+      with:
+        app-id: ${{ inputs.dispatch-app-id }}
+        private-key: ${{ secrets.INFRA_DISPATCH_PRIVATE_KEY }}
+        owner: matt-riley
+        repositories: infra
+        permission-contents: write
+    - name: Request exact source revision
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+        APP: ${{ inputs.app }}
+        SOURCE_REPO: ${{ github.repository }}
+        SOURCE_SHA: ${{ github.sha }}
+        SOURCE_REF: ${{ github.ref }}
+        RUN_ID: ${{ inputs.artifact-run-id }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+      run: |
+        set -euo pipefail
+        [[ "$APP" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || exit 1
+        [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+        if [[ -n "$RUN_ID$ARTIFACT_NAME$ARTIFACT_DIGEST" ]]; then
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ && -n "$ARTIFACT_NAME" && "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]] || exit 1
+        fi
+        jq -n \
+          --arg app "$APP" --arg repo "$SOURCE_REPO" --arg sha "$SOURCE_SHA" --arg ref "$SOURCE_REF" \
+          --arg run "$RUN_ID" --arg name "$ARTIFACT_NAME" --arg digest "$ARTIFACT_DIGEST" \
+          '{event_type:"deploy-app",client_payload:({app:$app,app_id:$app,source_repo:$repo,source_sha:$sha,ref:$ref} +
+            (if $run == "" then {} else {artifact_run_id:$run,artifact_name:$name,artifact_digest:$digest} end))}' |
+          gh api --method POST repos/matt-riley/infra/dispatches --input -
+        echo 'dispatched=true' >> "$GITHUB_OUTPUT"
+      id: dispatch
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Application dispatch
+        FIELD_0: ${{ steps.dispatch.outputs.dispatched }}
+        FIELD_1: ${{ github.sha }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Dispatched: %s\n" "$FIELD_0"
+          printf -- "- Source SHA: %s\n" "$FIELD_1"
+        } >> "$GITHUB_STEP_SUMMARY"
+    environment: ${{ inputs.environment }}
+    outputs:
+      dispatched: ${{ steps.dispatch.outputs.dispatched }}
+      source_sha: ${{ github.sha }}

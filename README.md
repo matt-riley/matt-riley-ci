@@ -1,476 +1,120 @@
 # matt-riley-ci
 
-Reusable GitHub Actions workflows for Matt Riley repositories.
+Reusable GitHub Actions workflows with repository-owned tasks, small language adapters, and separate publishing jobs. Start with Universal CI; use an adapter when its runtime-specific behavior is useful.
 
-## Versioning
+This checkout defines the **next major contract (v4)**. Existing v1/v2/v3 tags keep their existing APIs. Replace `REVIEWED_COMMIT_SHA` in examples with the full tested commit SHA from this implementation/release; do not copy a future `@v4` ref before it exists. Read the [migration guide](docs/migration-v4.md) before upgrading.
 
-- Use `@v1` for non-breaking updates on the major line.
-- Use `@v1.x.y` for fully pinned workflow behavior.
-- Breaking changes are released under a new major tag (for example `@v2`).
+## Start with repository-owned CI
 
-Write version refs in backticks in commit bodies. release-please republishes
-those bodies verbatim into `CHANGELOG.md` and the release notes, where a bare
-`@v1` resolves as a mention of the GitHub user of that name.
+Define tools and tasks in your own `mise.toml`. The workflow checks out your repository, not this library, so it cannot use this library's tasks or scripts.
 
-### Publishing the floating major tag
+```toml
+[tools]
+node = "24"
+pnpm = "12.8.1"
 
-`repository-release-please.yml` moves the floating `vN` tag after each release.
-That push needs a **`RELEASE_TAG_TOKEN`** repository secret — a PAT or GitHub
-App token with **workflows: write**.
+[tasks.install]
+run = "pnpm install --frozen-lockfile"
 
-The default `GITHUB_TOKEN` cannot do it. It is a GitHub App token, and GitHub
-refuses to let an App token create or update a ref containing
-`.github/workflows` content without `workflows` permission. That is not a
-grantable scope in a workflow's `permissions:` block, so no amount of
-permission tuning fixes it, and this repository is nothing but workflows.
+[tasks.lint]
+depends = ["install"]
+run = "pnpm run lint"
 
-Without the secret the release itself still succeeds and `vN.n.n` is published;
-only the floating `vN` tag is missing, so callers pinning `@vN` fail to resolve.
-The job fails loudly and says so rather than passing silently.
+[tasks.test]
+depends = ["install"]
+run = "pnpm test"
 
-## Workflows
+[tasks.build]
+depends = ["install"]
+run = "pnpm run build"
 
-### Universal CI
-
-Runs standard `mise` tasks without making callers provide a task list.
-
-```yaml
-jobs:
-  ci:
-    uses: matt-riley/matt-riley-ci/.github/workflows/ci.yml@v1
-    with:
-      install: true
-      lint: true
-      build: false
-      test: true
-      vet: false
-      fmt: false
-      task-prefix: ""
-      task-env: ""
-      runner: ubuntu-latest
-      timeout-minutes: 15
-      cancel-in-progress: false
-      concurrency-suffix: ""
-      working-directory: "."
-      save-cache: false
+[tasks.ci]
+depends = ["lint", "test", "build"]
 ```
 
-This workflow runs `mise run install`, `lint`, `build`, `test`, `vet`, and `fmt` when the matching boolean input is `true`. Use `task-prefix` only when a repository namespaces tasks, for example `task-prefix: "go-"` to run `go-test`, `go-vet`, and `go-fmt`. Use `task-env` for multiline task configuration such as working directories or command overrides. Repositories should declare any required runtimes or tools through `mise.toml` or `.tool-versions` so the workflow can provision them consistently.
-
-The workflow restores dependency caches before running tasks. For Go repositories, modules and build outputs have separate lifecycles: the module cache is keyed by dependency files, while the build cache restores the newest compatible snapshot and uses the commit SHA for each new snapshot. Both keys include the runner OS, architecture, and installed Go version.
-
-Cache writes are disabled by default. Set `save-cache: true` on exactly one comprehensive caller job; the workflow still refuses to write for pull requests, pull-request-target workflows, or non-default branches. A successful default-branch push or manual run then seeds mise, lockfile dependency, Go, and Playwright caches that later pull requests can restore.
-
-Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
-
-### Go Lint
+Keep commands native to your project: these could equally be Cargo, Python, Swift, Java or Make tasks. No package-manager guessing selects your CI commands.
 
 ```yaml
-jobs:
-  lint:
-    uses: matt-riley/matt-riley-ci/.github/workflows/go-lint.yml@v1
-    with:
-      runner: ubuntu-latest
-      go-version-file: go.mod
-      working-directory: .
-      golangci-version: v2.10.1
-      golangci-args: --timeout=5m
-      continue-on-error: false
-      timeout-minutes: 15
-      cancel-in-progress: false
-```
-
-### Aube CI
-
-```yaml
-jobs:
-  ci:
-    uses: matt-riley/matt-riley-ci/.github/workflows/aube-ci.yml@v1
-    with:
-      node-version: "22"
-      aube-version: latest
-      runner: ubuntu-latest
-      working-directory: .
-      require-lockfile: false
-      install-command: ""
-      run-lint: true
-      run-test: true
-      run-build: false
-      test-script: test
-      verify-lockfile-clean: false
-      lockfile-path: ""
-      build-env: ""
-      timeout-minutes: 15
-      cancel-in-progress: false
-      concurrency-suffix: ""
-```
-
-Set `concurrency-suffix` when invoking this workflow multiple times in the same workflow file to avoid concurrency group collisions between calls.
-
-Aube reads supported lockfiles in place (`aube-lock.yaml`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, and `bun.lock`). If a repository contains more than one supported lockfile, set `lockfile-path` explicitly so the workflow can validate and diff the intended file.
-
-### Cloudflare Pages Deploy
-
-Builds a Node-based project and deploys it to Cloudflare Pages.
-
-```yaml
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
 permissions:
   contents: read
-  id-token: write
-
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  deploy:
-    uses: matt-riley/matt-riley-ci/.github/workflows/cloudflare-pages-deploy.yml@v3
+  ci:
+    uses: matt-riley/matt-riley-ci/.github/workflows/ci.yml@REVIEWED_COMMIT_SHA
     with:
-      project-name: my-pages-project
-      deploy-directory: dist
-      node-version: "22"
-      package-manager: pnpm
-      pnpm-version: ""
-      working-directory: .
-      runner: ubuntu-latest
-      timeout-minutes: 15
-      oidc-audience: ""
-    secrets:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      task-jobs: 4
+      install-tools: node pnpm
+      save-cache: true
 ```
 
-**Breaking in v3.** The job now requests `id-token: write`, and a reusable workflow cannot hold a permission its caller has not granted — so every caller must add the `permissions` block above, including callers that keep using the API token. Callers pinned to `@v1` or `@v2` are unaffected until they bump.
+`ci` is the default task. Enabled phase flags select repository tasks named install/lint/build/test/vet/fmt instead; `task-prefix` prepends a namespace. Shared dependencies run once in a single graph. A missing task is an error. The default `task-jobs: 1` avoids unexpected concurrent phases; choose parallelism after declaring task dependencies. Cancellation belongs to the caller; the library's independent CI jobs never share a concurrency lock.
 
-`CLOUDFLARE_API_TOKEN` is now optional. Omit it and the workflow exchanges the runner's GitHub OIDC token for a short-lived Cloudflare API token, so no long-lived token is stored:
+For a monorepo, set `working-directory: packages/server`. Artifact and diagnostic paths are relative to that directory. Add `cache-paths` and `cache-dependency-path` for ecosystem-specific caches. See [performance guidance](docs/performance.md), especially when Playwright system dependency installation dominates setup time.
 
-```yaml
-    secrets:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-```
+## Workflow catalog
 
-Pass it and that value is used unchanged, which lets a repository migrate on its own schedule. To use OIDC, create a Cloudflare API token with a Gateway condition on the `sub` claim matching the calling repository (for example `repo:matt-riley/my-app`). `oidc-audience` defaults to `https://github.com/<owner>`; set it if the Cloudflare token expects a different audience.
+| Workflow | Purpose | Runner contract |
+| --- | --- | --- |
+| `ci.yml` | Execute the consumer's mise task graph; caches and build/failure artifacts | Linux/macOS, Bash and Python 3 |
+| `go-ci.yml` | Native build/test/race/vet/gofmt, coverage and diagnostics | Linux/macOS with setup-go and Python 3 |
+| `go-lint.yml` | Pinned golangci-lint with actual outcome reporting | Linux/macOS supported by the upstream lint action |
+| `go-security.yml` | Pinned govulncheck | Linux/macOS |
+| `aube-ci.yml` | Node package CI through pinned Aube, strict scripts/lockfiles | Linux/macOS supported by Aube |
+| `docker-ghcr-publish.yml` | Native/multi-platform GHCR image validation or publishing | Linux with Docker; supported platforms listed in reference |
+| `cloudflare-pages-deploy.yml` | Deploy an existing same-run site artifact | Linux; Node used only to run Wrangler |
+| `go-goreleaser.yml` | Snapshot validation or tagged release, optional tap token | Linux/macOS supported by GoReleaser |
+| `homebrew-formula.yml` | Generate, syntax-check and push a tap formula from release assets | Linux with gh, Python and Ruby |
+| `nvim-format.yml` | Pinned StyLua | Linux/macOS x64/arm64 |
+| `nvim-lint.yml` | Pinned standalone luacheck, no apt setup | Linux x64; use Universal CI for other platforms |
+| `nvim-tests.yml` | Exact Neovim release and pinned mini.test | Linux/macOS x64/arm64 |
+| `pnpm-lockfile-sync.yml` | Refresh only a same-repository release PR lockfile | Linux with pnpm/Node |
+| `release-please.yml` | Release PRs and tagged releases; generic monorepo outputs | Linux with release-please |
+| `request-app-deploy.yml` | Request exact source/artifact deployment from matt-riley/infra | Linux; project-specific target |
+| `request-infra-deploy.yml` | Request deployment from an explicit generic infra repository | Linux |
+| `tailscale-acl.yml` | Validate/apply policy with workload identity federation | Linux supported by Tailscale's action |
 
-`CLOUDFLARE_ACCOUNT_ID` stays required — OIDC replaces the credential, not the account selector.
+Every input, default, secret, output and job permission is listed in the [generated reference](docs/reference.md). [Complete caller examples](docs/examples.md) include setup, permissions and secrets for each workflow. Runner defaults are GitHub-hosted; arbitrary self-hosted labels must supply the stated tools. Windows PowerShell runners are not supported by Bash adapters.
 
-### Request Infra Deploy
+## Permissions, credentials and trust
 
-Dispatches `deploy-app` to the infra repository so the centralized infra workflow can build and deploy the app.
+Callers must grant the permissions requested by their called workflow. A reusable workflow cannot elevate the caller's token. Start with `contents: read`; grant write permissions only to publishing jobs. Checkouts never persist credentials. Publishing steps use explicit secrets or a temporary credential helper. `registry-token` and `dependency-token` in Universal CI are optional read-only credentials exposed to repository tasks as NODE_AUTH_TOKEN and DEPENDENCY_TOKEN; configure registry/private module access in the consumer's install task and keep tokens out of files/artifacts. These secrets are not available on fork PRs.
 
-```yaml
-jobs:
-  request-deploy:
-    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v2
-    with:
-      app-name: my-app
-      infra-repo: infra
-    secrets:
-      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-```
+`task-env` and `build-env` accept literal multiline KEY=VALUE entries. They reject workflow control variables. Custom command inputs are deliberately executable repository-owned code: only trusted caller maintainers should edit them. Do not forward untrusted PR text or manual user strings into command inputs. Plain inputs such as paths, tags and task names are transported as data and validated.
 
-The caller repository must define repository variable `APP_ID` and secret `PRIVATE_KEY`. By default, `infra-repo: infra` targets `${{ github.repository_owner }}/infra`; pass `owner/repo` to target a different infra repository explicitly.
+Writers require trusted events: default/production-branch pushes or manual runs for deployments/dispatch, release tags for GoReleaser/Homebrew, and same-repository release PRs for lockfile synchronization. Protect named GitHub environments and restrict who can invoke manual workflows. Caller `environment` on a reusable job is not passed through automatically: use the workflow's environment input, and configure environment secrets in the caller repository. Environment secrets used by a called job can override same-named passed secrets.
 
-For an immutable artifact deployment, make the caller wait for its artifact job and pass all three artifact fields:
-
-```yaml
-jobs:
-  request-deploy:
-    needs: build
-    uses: matt-riley/matt-riley-ci/.github/workflows/request-infra-deploy.yml@v2
-    with:
-      app-name: my-app
-      infra-repo: infra
-      artifact-run-id: ${{ github.run_id }}
-      artifact-name: my-app-linux-amd64
-      artifact-digest: ${{ needs.build.outputs.artifact_digest }}
-    secrets:
-      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-```
-
-Artifact mode requires `artifact-run-id`, `artifact-name`, and `artifact-digest` together. Existing callers may omit all three fields for source-only dispatches. The GitHub App used by the infra repository must have Actions read access to the source repository so infra can download the exact artifact.
+Source/artifact dispatch is only a request. The receiving repository must authenticate the sender, allowlist app/source repositories, verify SHA/ref provenance, retrieve the declared run artifact, compare the SHA-256 digest, and enforce production policy before executing/deploying anything. Never trust a repository_dispatch payload alone as authorization.
 
 ### Tailscale ACL
 
-Validates a tailnet policy file and runs the policy's own ACL tests on pull requests, then applies it on merge to the default branch.
+Configure a Tailscale federated identity with the exact repository/workflow and allowed subject/branch claims shown by your GitHub issuer. Grant `id-token: write` to the caller. New GitHub immutable repository/owner IDs can change subject formats; use the actual claims from your issuer rather than copying a repo-name-only example. The default validates PRs and applies default-branch pushes. Explicit `action: apply` also requires a trusted default-branch push/manual run. No long-lived secret is required. Protect the environment for apply and use Tailscale-side identity restrictions; the local guard is only one layer.
 
-```yaml
-permissions:
-  contents: read
-  id-token: write
+## Versioning and maintenance
 
-jobs:
-  acl:
-    uses: matt-riley/matt-riley-ci/.github/workflows/tailscale-acl.yml@v2
-    with:
-      oauth-client-id: ${{ vars.TS_OAUTH_CLIENT_ID }}
-      audience: ${{ vars.TS_AUDIENCE }}
-      tailnet: "-"
-      policy-file: policy.hujson
-      action: ""
-      runner: ubuntu-latest
-      timeout-minutes: 10
-      cancel-in-progress: false
-      concurrency-suffix: ""
+Pin callers to a reviewed full commit SHA for reproducible runs. A floating major tag accepts compatible fixes; major contract changes get a new major version. This branch does not rewrite existing major tags. Tool/action updates use Renovate, pinned defaults and the same contract suite. Consumer overrides intentionally transfer version compatibility responsibility to the caller.
+
+Only the latest major receives routine maintenance; older versions remain usable but receive no guaranteed backports. A breaking input/default/security behavior change requires a migration note and major release. New workflow adapters need a complete caller, a clean consumer fixture and executable negative cases before inclusion. CODEOWNERS assigns ownership to @matt-riley. Report security issues privately to the maintainer; no response SLA is promised for this personal library.
+
+## Validate locally and publish releases
+
+```sh
+mise install
+mise run setup
+mise run ci
 ```
 
-This workflow takes **no secrets**. Authentication is [workload identity federation][ts-wif]: the runner mints a short-lived OIDC token and Tailscale exchanges it for a short-lived API token, so nothing long-lived is stored. The client ID and audience are not sensitive, which is why they are inputs rather than secrets — pass them as repository variables. The caller must grant `id-token: write`.
+Setup installs pinned validators in `.venv`; subsequent checks do not reinstall them. The single check command validates .yml/.yaml syntax, duplicate keys, all action/reusable/container pins, shell/expression semantics, security policy, every executable Python contract and generated reference drift. The hosted suite additionally runs real Go/Aube/mise/Docker/Neovim consumer workflows and verifies build/coverage artifact handoff. PRs and merge queues run the full suite without path filters. Main pushes call that same suite before release-please; release commits therefore validate the exact source revision before advancing a major tag.
 
-Create the federated identity in the Tailscale admin console with issuer `https://token.actions.githubusercontent.com` and a subject restricted to the calling repository, for example `repo:matt-riley/infra:*`. The audience is `api.tailscale.com/<client id>`.
+Set branch protection to require the final **checks** job. The repository release workflow uses `RELEASE_TAG_TOKEN` for floating tag updates: a PAT/App token with contents write and **workflows: write** access. That latter scope is not a valid workflow `permissions:` key. An ordinary GITHUB_TOKEN may be rejected when moving refs containing workflow files. Use the default GITHUB_TOKEN for release-please when subsequent automatic release-PR CI is not needed; use an explicit App/PAT token when downstream event-triggered checks must run (GitHub suppresses most workflows caused by GITHUB_TOKEN).
 
-Leave `action` empty to test on pull requests and apply on pushes to the default branch. Set it to `test` or `apply` to force one — `test` is the right choice when something else, such as Terraform, is the applier, since two owners of the same policy will overwrite each other.
+If a release exists but major-tag publication failed, manually run Repository Release Please **on that exact release tag**, with `release-tag` set to it. The full suite revalidates that SHA, and the publisher verifies the remote tag target after a guarded push. A different branch revision cannot bless an untested tag. Concurrent releases are serialized and stale tag updates use force-with-lease. GitHub's ordinary concurrency allows one running and one pending run, so intermediate pending runs may be replaced; do not use it as a lossless queue.
 
-Policy files contain user and group identifiers, so the calling repository should be private.
-
-[ts-wif]: https://tailscale.com/docs/features/workload-identity-federation
-
-### Neovim Format
-
-Runs StyLua with a pinned release.
-
-```yaml
-jobs:
-  format:
-    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-format.yml@v1
-    with:
-      paths: "lua/ plugin/ tests/"
-      runner: ubuntu-latest
-      stylua-version: v2.4.0
-      timeout-minutes: 15
-      cancel-in-progress: false
-```
-
-### Neovim Lint
-
-```yaml
-jobs:
-  lint:
-    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-lint.yml@v1
-    with:
-      paths: "lua/ plugin/ tests/"
-      runner: ubuntu-latest
-      timeout-minutes: 15
-      cancel-in-progress: false
-```
-
-### Neovim Tests
-
-Runs plugin tests with a pinned `mini.nvim` checkout.
-
-```yaml
-jobs:
-  test:
-    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-tests.yml@v1
-    with:
-      neovim-version: neovim
-      mini-version: v0.17.0
-      runner: ubuntu-latest
-      timeout-minutes: 15
-      cancel-in-progress: false
-```
-
-### Release Please
-
-```yaml
-jobs:
-  release:
-    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@v1
-    with:
-      runner: ubuntu-latest
-      config-file: release-please-config.json
-      manifest-file: .release-please-manifest.json
-      component-output-key: clients/typescript
-      cancel-in-progress: true
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Outputs from `release-please.yml`:
-- `release_created`
-- `tag_name`
-- `component_release_created` (for `component-output-key`)
-- `component_tag_name` (for `component-output-key`)
-- `raw_outputs_json` (full release-please output map)
-
-Example of chaining on release outputs:
-
-```yaml
-jobs:
-  release:
-    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@v1
-    with:
-      config-file: release-please-config.json
-      manifest-file: .release-please-manifest.json
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
-
-  publish:
-    needs: release
-    if: needs.release.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Publishing for tag ${{ needs.release.outputs.tag_name }}"
-```
-
-### Go GoReleaser
-
-Runs [GoReleaser](https://goreleaser.com) on tag push. Requires a `.goreleaser.yml` in the repository.
-
-```yaml
-jobs:
-  release:
-    uses: matt-riley/matt-riley-ci/.github/workflows/go-goreleaser.yml@v1
-    with:
-      runner: ubuntu-latest
-      go-version-file: go.mod
-      goreleaser-version: "~> v2"
-      args: release --clean
-      working-directory: .
-      timeout-minutes: 30
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      homebrew-tap-token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-```
-
-> `github-token` is optional and falls back to `github.token`. Only set `homebrew-tap-token` if GoReleaser publishes to a Homebrew tap.
-
-### Homebrew Formula
-
-Publishes a formula update to a Homebrew tap from four existing release archives.
-This is useful for non-GoReleaser projects that already publish archives for
-macOS and Linux.
-
-```yaml
-jobs:
-  homebrew:
-    uses: matt-riley/matt-riley-ci/.github/workflows/homebrew-formula.yml@v2
-    with:
-      tag: v1.2.3
-      tap-repo: matt-riley/homebrew-tools
-      formula-name: mytool
-      class-name: Mytool
-      desc: My command line tool
-      homepage: https://github.com/matt-riley/mytool
-      license: MIT
-      binary: mytool
-      archive-x86_64-macos: mytool-x86_64-macos.tar.gz
-      archive-aarch64-macos: mytool-aarch64-macos.tar.gz
-      archive-x86_64-linux: mytool-x86_64-linux.tar.gz
-      archive-aarch64-linux: mytool-aarch64-linux.tar.gz
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      homebrew-tap-token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-```
-
-`source-repo` defaults to the caller repository. The workflow downloads the
-named archives from the release tag, calculates SHA256 checksums, writes
-`Formula/<formula-name>.rb`, and pushes only when the formula changes. Missing
-`homebrew-tap-token` is a warning by default; set `fail-if-missing-token: true`
-to fail the job instead.
-
-### Go Security
-
-Runs [`govulncheck`](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) to detect known vulnerabilities in Go dependencies. Suitable as a PR check or scheduled weekly scan.
-
-```yaml
-jobs:
-  security:
-    uses: matt-riley/matt-riley-ci/.github/workflows/go-security.yml@v1
-    with:
-      runner: ubuntu-latest
-      go-version-file: go.mod
-      working-directory: .
-      govulncheck-version: v1.1.4
-      timeout-minutes: 15
-      cancel-in-progress: false
-```
-
-### Docker GHCR Publish
-
-```yaml
-jobs:
-  docker:
-    uses: matt-riley/matt-riley-ci/.github/workflows/docker-ghcr-publish.yml@v1
-    with:
-      runner: ubuntu-latest
-      context: .
-      dockerfile: ""
-      image-name: ghcr.io/owner/repo
-      tag-name: v1.2.3
-      build-args: ""
-      metadata-tags: ""
-      metadata-flavor: ""
-      platforms: linux/amd64,linux/arm64
-      checkout-fetch-depth: 1
-      push: true
-      provenance: false
-      sbom: false
-      cancel-in-progress: false
-      timeout-minutes: 30
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-> **Note:** `token` is required and must have `packages:write` permission. The default timeout is 30 minutes (vs 15 minutes for other workflows).
-
-- `tag-name` set: publishes raw semver, `major.minor`, `major`, and `latest` tags.
-- `tag-name` empty: publishes short SHA tag only.
-- `metadata-tags` set: overrides default tag rules (use for custom tag mapping).
-- Outputs:
-  - `image_name`
-  - `tags`
-  - `labels`
-  - `digest`
-
-### PNPM Lockfile Sync
-
-```yaml
-jobs:
-  sync:
-    if: startsWith(github.head_ref, 'release-please--')
-    uses: matt-riley/matt-riley-ci/.github/workflows/pnpm-lockfile-sync.yml@v1
-    with:
-      runner: ubuntu-latest
-      working-directory: services/webclient
-      node-version: "24"
-      pnpm-version: "10"
-      lockfile-name: pnpm-lock.yaml
-      install-command: pnpm install --no-frozen-lockfile --lockfile-only
-      commit-message: chore(webclient): sync pnpm lockfile
-      cancel-in-progress: false
-      timeout-minutes: 15
-    secrets:
-      token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-```
-
-See the Release Please outputs above when chaining on `release_created` or `tag_name` in `if` conditions.
-
-## Token guidance for release-please
-
-- Start with `GITHUB_TOKEN` in most repositories.
-- Use a PAT only when branch protections or org policies block PR/release automation with `GITHUB_TOKEN`.
-
-## Repository self-validation
-
-- This repository includes `.github/workflows/validate-workflows.yml` to validate workflow YAML and enforce SHA-pinned actions.
-- This repository includes `.github/workflows/contract-tests.yml` to run smoke tests against the reusable workflows.
-- This repository includes `.github/workflows/repository-release-please.yml` plus `release-please-config.json` and `.release-please-manifest.json` to version the workflow library from `main`.
-- This repository includes `.github/workflows/monthly-docs-audit.md` (compiled to `.lock.yml`) to run a monthly agentic documentation audit and publish a findings report issue.
-
-## Version governance
-
-- Publish non-breaking updates as `v1.x.y`.
-- Move the floating `v1` tag to the latest compatible `v1.x.y` release after validation.
-- Introduce `v2` only for intentionally breaking input/behavior changes.
-
-### Scoped infrastructure dispatch
-
-`request-app-deploy.yml` is the public reusable caller for private `matt-riley/infra` deployment receivers. Public repositories cannot call reusable workflows housed in private repositories. Pin this workflow to a reviewed commit when migrating callers.
-
-```yaml
-  deploy:
-    needs: [ci]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: matt-riley/matt-riley-ci/.github/workflows/request-app-deploy.yml@<reviewed-commit>
-    with:
-      app: example
-      dispatch-app-id: ${{ vars.INFRA_DISPATCH_APP_ID }}
-    secrets:
-      INFRA_DISPATCH_PRIVATE_KEY: ${{ secrets.INFRA_DISPATCH_PRIVATE_KEY }}
-```
-
-Use a dedicated App installed only on infra with repository contents write (required by repository dispatch); do not reuse an infrastructure administrator key. Receivers independently verify source CI and the exact revision. `production-branch` defaults to `main`. Binary callers additionally provide all of `artifact-run-id` (string), `artifact-name`, and `artifact-digest` (SHA-256); partial metadata is rejected. Configure the App and source secrets before merging caller changes. The existing `request-infra-deploy.yml` remains for unmigrated callers.
+The monthly documentation audit and its gh-aw bootstrap were removed. Documentation contract checks run with regular CI.

@@ -1,114 +1,98 @@
 name: Repository Release Please
-
-on:
+'on':
   workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Existing stable release tag to repair; leave empty for release-please
+        type: string
+        required: false
   push:
     branches:
-      - main
-
+    - main
+permissions:
+  contents: read
+concurrency:
+  group: repository-release:${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   release:
     permissions:
       contents: write
       issues: write
       pull-requests: write
-    uses: ./.github/workflows/release-please.yml
+    uses: ./.github/workflows/release-please.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
     with:
       config-file: release-please-config.json
       manifest-file: .release-please-manifest.json
-      cancel-in-progress: true
-
+    needs: validate
+    if: ${{ inputs.release-tag == '' }}
   move-major-tag:
     name: Move floating major tag
-    needs: release
-    if: ${{ needs.release.outputs.release_created == 'true' && needs.release.outputs.tag_name != '' }}
+    needs:
+    - validate
+    - release
+    if: ${{ always() && needs.validate.result == 'success' && (inputs.release-tag != '' || (needs.release.result
+      == 'success' && needs.release.outputs.release_created == 'true')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      # GITHUB_TOKEN is a GitHub App token, and GitHub refuses to let an App
-      # token create or update a ref carrying .github/workflows content without
-      # `workflows` permission — which is not a grantable scope in the
-      # `permissions:` block above, so it cannot be fixed there. This repository
-      # is nothing but workflows, so every major tag trips it. RELEASE_TAG_TOKEN
-      # is a PAT or App token that does hold `workflows`.
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: true
-          token: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
-
-      - name: Move major tag
-        env:
-          TAG_NAME: ${{ needs.release.outputs.tag_name }}
-          HAS_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN != '' }}
-        run: |
-          set -euo pipefail
-
-          case "$TAG_NAME" in
-            v*.*.*) major_tag="${TAG_NAME%%.*}" ;;
-            *)
-              echo "Unexpected release tag: $TAG_NAME" >&2
-              exit 1
-              ;;
-          esac
-
-          git fetch --force --tags origin
-          target_sha="$(git rev-list -n 1 "refs/tags/$TAG_NAME")"
-
-          # ls-remote prints a second "^{}" line for annotated tags, so take the
-          # dereferenced value when present and never let two SHAs reach the
-          # comparison below.
-          current_sha="$(
-            git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" \
-              | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' \
-              | tail -n 1
-          )"
-
-          if [ -z "$target_sha" ]; then
-            echo "Could not resolve release tag $TAG_NAME" >&2
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+        token: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+    - name: Move major tag
+      env:
+        TAG_NAME: ${{ inputs.release-tag != '' && inputs.release-tag || needs.release.outputs.tag_name }}
+        HAS_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN != '' }}
+        TESTED_SHA: ${{ needs.validate.outputs.tested_sha }}
+        PUSH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+      run: |
+        # shellcheck disable=SC2016
+        # The helper expands PUSH_TOKEN only when git invokes it.
+        set -euo pipefail
+        [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::Only stable semantic-version tags may move a major tag'; exit 1; }
+        major_tag="${TAG_NAME%%.*}"
+        git fetch --force --tags origin
+        target_sha="$(git rev-list -n 1 "refs/tags/$TAG_NAME")"
+        test "$target_sha" = "$TESTED_SHA" || { echo '::error::Release tag is not the revision validated by this run. Run the repair workflow on that exact tag.'; exit 1; }
+        current_sha="$(git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' | tail -n 1)"
+        current_object="$(git ls-remote --tags origin "refs/tags/$major_tag" | cut -f1)"
+        if [ "$current_sha" != "$target_sha" ]; then
+          if [ -n "$current_sha" ]; then
+            git merge-base --is-ancestor "$current_sha" "$target_sha" || { echo '::error::Refusing to move a major tag backwards or to unrelated history'; exit 1; }
+          fi
+          git tag -f "$major_tag" "$target_sha"
+          # shellcheck disable=SC2016
+          if ! git -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' push origin "refs/tags/$major_tag" --force-with-lease="refs/tags/$major_tag:$current_object"; then
+            echo '::error title=Cannot publish major tag::Push failed. RELEASE_TAG_TOKEN needs contents and workflows write access; check its permissions, expiry and tag rules.' >&2
             exit 1
           fi
-
-          if [ "$current_sha" = "$target_sha" ]; then
-            echo "$major_tag already points at $TAG_NAME"
-            exit 0
-          fi
-
-          git tag -f "$major_tag" "$target_sha"
-
-          if git push origin "refs/tags/$major_tag" --force; then
-            echo "$major_tag now points at $TAG_NAME"
-            exit 0
-          fi
-
-          if [ "$HAS_TAG_TOKEN" != "true" ]; then
-            echo "::error title=Cannot publish $major_tag::Pushing $major_tag was rejected, and RELEASE_TAG_TOKEN is not set. The default GITHUB_TOKEN is a GitHub App token, which cannot create or update a ref containing .github/workflows without 'workflows' permission — a scope the permissions: block cannot grant. Add a RELEASE_TAG_TOKEN secret (PAT or App token with workflows write) and re-run. Until then callers pinning @$major_tag will not resolve." >&2
-          else
-            echo "::error title=Cannot publish $major_tag::Pushing $major_tag was rejected even with RELEASE_TAG_TOKEN set. Check that the token still has 'workflows' write and has not expired." >&2
-          fi
-          exit 1
-
-      - name: Summary
-        if: ${{ always() }}
-        env:
-          TAG_NAME: ${{ needs.release.outputs.tag_name }}
-          HAS_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN != '' }}
-        run: |
-          major_tag="${TAG_NAME%%.*}"
-
-          # Report what callers can actually pin, not what we intended to push.
-          if git ls-remote --exit-code --tags origin "refs/tags/$major_tag" >/dev/null 2>&1; then
-            published="yes"
-          else
-            published="no"
-          fi
-
-          {
-            echo "### Floating major tag summary"
-            echo "- release tag: \`$TAG_NAME\`"
-            echo "- floating tag: \`$major_tag\`"
-            echo "- published: $published"
-            echo "- RELEASE_TAG_TOKEN configured: $HAS_TAG_TOKEN"
-          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        published_sha="$(git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' | tail -n 1)"
+        test "$published_sha" = "$target_sha" || { echo '::error::Remote major tag does not point to the tested release'; exit 1; }
+        printf 'target_sha=%s\nmajor_tag=%s\npublished=true\n' "$target_sha" "$major_tag" >> "$GITHUB_OUTPUT"
+      id: move
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Floating major tag
+        FIELD_0: ${{ steps.move.outputs.major_tag }}
+        FIELD_1: ${{ steps.move.outputs.target_sha }}
+        FIELD_2: ${{ steps.move.outputs.published }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Tag: %s\n" "$FIELD_0"
+          printf -- "- Verified target SHA: %s\n" "$FIELD_1"
+          printf -- "- Published: %s\n" "$FIELD_2"
+        } >> "$GITHUB_STEP_SUMMARY"
+    timeout-minutes: 10
+  validate:
+    uses: ./.github/workflows/contract-tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
