@@ -25,6 +25,12 @@ class RequestAppDeployContractTest(unittest.TestCase):
         self.assertIn("github.ref == format('refs/heads/{0}', inputs.production-branch)", self.job['if'])
         self.assertEqual('main', self.workflow['on']['workflow_call']['inputs']['production-branch']['default'])
 
+    def test_only_push_or_explicit_dispatch_on_production_branch_can_request(self):
+        self.assertEqual(
+            "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', inputs.production-branch)",
+            self.job['if'],
+        )
+
     def run_dispatch(self, **overrides):
         with tempfile.TemporaryDirectory() as directory:
             gh = Path(directory, 'gh')
