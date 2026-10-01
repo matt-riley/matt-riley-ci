@@ -98,6 +98,29 @@ jobs:
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       with:
         persist-credentials: false
+    - name: Resolve artifact paths
+      id: paths
+      env:
+        COVERAGE_PATHS: ${{ inputs.coverage-path }}
+        FAILURE_PATHS: ${{ inputs.failure-artifact-path }}
+      run: |
+        python3 - <<'PY'
+        import os, pathlib, uuid
+        root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        cwd = pathlib.Path.cwd().resolve()
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            for name, variable in [('coverage', 'COVERAGE_PATHS'), ('failure', 'FAILURE_PATHS')]:
+                paths = []
+                for line in os.environ[variable].splitlines():
+                    if not line.strip(): continue
+                    negative = line.startswith('!')
+                    path = (cwd / (line[1:] if negative else line)).resolve()
+                    path.relative_to(root)
+                    paths.append(('!' if negative else '') + str(path))
+                delimiter = 'PATHS_' + uuid.uuid4().hex
+                out.write(name + '<<' + delimiter + '\n' + '\n'.join(paths) + '\n' + delimiter + '\n')
+        PY
+      shell: bash
     - name: Require a Go check
       env:
         BUILD_COMMAND: ${{ inputs.build-command }}
@@ -208,7 +231,7 @@ jobs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: ${{ inputs.coverage-artifact-name }}
-        path: ${{ format('{0}/{1}', inputs.working-directory, inputs.coverage-path) }}
+        path: ${{ steps.paths.outputs.coverage }}
         if-no-files-found: error
         retention-days: ${{ inputs.artifact-retention-days }}
     - name: Upload failure diagnostics
@@ -216,7 +239,7 @@ jobs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: ${{ inputs.failure-artifact-name }}
-        path: ${{ format('{0}/{1}', inputs.working-directory, inputs.failure-artifact-path) }}
+        path: ${{ steps.paths.outputs.failure }}
         if-no-files-found: warn
         retention-days: ${{ inputs.artifact-retention-days }}
     - name: Save Go module cache

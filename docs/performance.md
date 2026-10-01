@@ -38,6 +38,7 @@ Set `playwright-cache: true` only for browser-test jobs. Library workflows never
 
 - Universal dependency caches include OS, architecture, project directory, detected tool versions and project lockfiles. Go build caches also include the revision, with compatible fallback keys. Extra cache paths and dependency globs support other ecosystems.
 - Cache restores are enabled by default. Writes require `save-cache: true`, successful execution, and a push/manual run on the default branch. Designate one writer per project instead of making every parallel job upload the same cache. PRs read caches without updating trusted branch caches.
+- Pinned govulncheck binaries also use OS/architecture/Go/scanner version keys, avoiding repeated compilation after a designated trusted writer populates the cache. Floating scanner versions bypass this binary cache.
 - Docker caches use image, context, Dockerfile and platforms as their default namespace. Native single-platform builds skip QEMU. Multi-platform output remains an explicit option. Validation builds do not log in or upload the BuildKit cache.
 - Pages deploys download a same-run build artifact and install only Wrangler's runtime. They do not rebuild the application. Use `needs: build` and pass the producer's artifact name.
 - Keep artifact retention short (default seven days); choose unique artifact names for matrices. Docker attestations default on for publishing, so account for their cost without dropping provenance to shave a few seconds.
@@ -45,3 +46,5 @@ Set `playwright-cache: true` only for browser-test jobs. Library workflows never
 ## Measuring honestly
 
 Compare equivalent revisions, runner images and task selections. Measure cold and warm cache runs separately, include artifact/cache transfer time, and inspect the exact slow step. A fast smoke fixture proves the workflow contract, not a speedup for a large application. The local regression suite checks shared dependency execution; hosted consumer timings are recorded in the implementation plan once available.
+
+In [consumer run 36906004644](https://github.com/matt-riley/matt-riley-ci/actions/runs/36906004644), all consumer checks passed: mise setup took five seconds for Node, three for Bun and four for the language-neutral fixture; Neovim setup took two seconds. Docker skipped QEMU on the native build. The scanner's uncached compilation took nineteen seconds, motivating its pinned binary cache. These are small-fixture step timings with runner/cache state specific to that run, not before/after application benchmarks or guarantees.

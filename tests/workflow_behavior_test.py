@@ -97,6 +97,15 @@ run = "test -f count"
             self.assertIn(str(self.project / suffix), output)
         self.assertNotEqual(0, self.run_step('ci.yml', 'paths', BUILD_PATHS='../../outside', FAILURE_PATHS='').returncode)
 
+    def test_adapter_artifact_paths_apply_nested_directory_to_every_line(self):
+        for name in ['go-ci.yml', 'aube-ci.yml']:
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            self.okay(self.run_step(name, 'paths', COVERAGE_PATHS='coverage.out\nreports/*.xml\n!reports/private', FAILURE_PATHS='logs\nerrors'))
+            output = Path(self.env['GITHUB_OUTPUT']).read_text()
+            for path in ['coverage.out', 'reports/*.xml', 'reports/private', 'logs', 'errors']:
+                self.assertIn(str(self.project / path), output)
+            self.assertNotEqual(0, self.run_step(name, 'paths', COVERAGE_PATHS='../../outside', FAILURE_PATHS='').returncode)
+
     def test_cache_metadata_uses_project_and_runtime_and_browser_opt_in(self):
         (self.project / 'package-lock.json').write_text('{}')
         self.stub('npm', "print('/tmp/npm-store')\n")
@@ -162,6 +171,19 @@ run = "test -f count"
         self.assertIn('value=release --clean --snapshot --skip=publish', Path(self.env['GITHUB_OUTPUT']).read_text())
         self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(env, SNAPSHOT='false', GITHUB_EVENT_NAME='pull_request')).returncode)
         self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'goreleaser-args', **dict(env, ARGS='release\nvalue=bad')).returncode)
+
+    def test_scanner_cache_only_reuses_exact_pinned_versions(self):
+        for version, cacheable in [('v1.1.4', 'true'), ('latest', 'false'), ('main', 'false')]:
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            self.okay(self.run_step('go-security.yml', 'scanner', VERSION=version))
+            self.assertIn('cacheable=' + cacheable, Path(self.env['GITHUB_OUTPUT']).read_text())
+        self.assertIn(str(self.root / 'govulncheck-bin'), Path(self.env['GITHUB_PATH']).read_text())
+        restore = step('go-security.yml', 'scanner-cache')
+        for dimension in ['runner.os', 'runner.arch', 'go-cache-metadata.outputs.version', 'inputs.govulncheck-version']:
+            self.assertIn(dimension, restore['with']['key'])
+        save = step('go-security.yml', 'Save pinned scanner binary')
+        self.assertIn('inputs.save-cache', save['if'])
+        self.assertIn('github.event.repository.default_branch', save['if'])
 
     def test_go_quoted_commands_and_arguments_are_preserved(self):
         self.stub('go', 'import json, sys\nprint(json.dumps(sys.argv[1:]))\n')

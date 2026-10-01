@@ -19,6 +19,6 @@ These changes are staged for the next major release. They are not available on e
 | Tool caches saved implicitly | Go/universal cache writes opt in on trusted default-branch runs | Enable save-cache on one designated writer |
 | Release/tag advancement independent of tests | Full suite gates release; floating tag target must equal the tested SHA | Configure the protected release environment and tag credential |
 
-Repository maintenance now uses `mise run setup` once and `mise run ci` thereafter. The old exported Go/Node/Bun helper tasks, duplicated inline validator, gh-aw bootstrap, and monthly documentation audit are removed. Validation discovers every Python contract test automatically. README/reference drift is checked during normal CI instead of a scheduled audit.
+Repository maintenance now uses `mise run setup` once and `mise run ci` thereafter. The old exported Go/Node/Bun helper tasks, duplicated inline validator, gh-aw bootstrap, and monthly documentation audit are removed. Validation discovers every Python contract test automatically. Caller examples and generated-reference contracts are checked during normal CI instead of a scheduled audit.
 
 `request-app-deploy.yml` remains the convenient dispatcher for matt-riley/infra. The generic `request-infra-deploy.yml` supports other owners/targets. Both preserve source SHA and artifact run ID as strings and report dispatch acceptance; they do not claim that a remote deployment completed.

@@ -25,11 +25,13 @@ The user authorized all bugs and improvements from the review, including removal
 
 ## Local evidence
 
-Implemented the core/specialized contracts, writer guards, scoped caches, fast binary setup, complete caller/reference/migration/performance documentation, and audit removal. The single local entrypoint passes actionlint with shellcheck, zizmor offline policy, 32 executable contracts, and generated-reference drift checks. Real mise dependency graphs execute shared installation once; real local Git remotes verify annotated major-tag updates, idempotence, exact tested SHA rejection, and rollback rejection. Ruby syntax checks validate generated formulas with quoted/interpolated-looking input.
+Implemented the core/specialized contracts, writer guards, scoped caches, fast binary setup, complete caller/reference/migration/performance documentation, and audit removal. The single local entrypoint passes actionlint with shellcheck, zizmor offline policy, 38 executable contracts, and generated-reference drift checks. Real mise dependency graphs execute shared installation once; real local Git remotes verify annotated major-tag updates, idempotence, exact tested SHA rejection, and rollback rejection. Ruby syntax checks validate generated formulas with quoted/interpolated-looking input.
 
 The user-provided mattriley.tools example showed mise setup succeeding and repository Playwright setup installing 181 apt packages in two jobs. Build failures occurred in Astro's TypeScript compatibility check. Evidence and task-boundary guidance are in docs/performance.md. The external repository was inspected without modifying it.
 
-Hosted consumer validation and final requirement audit remain outstanding. No publishing/deployment credentials are used by those checks.
+Hosted run 36906004644 passed on bec821233e1298f01383c461381dd5d2f2c64f23: validation, Node/Bun/language-neutral mise consumers, native Go test/lint/security, GoReleaser snapshot, Aube, Docker validation, all three Neovim adapters, artifact handoff and the aggregate gate. Mise setup took 3-5 seconds; Neovim installation took 2 seconds. Cold scanner compilation took 19 seconds; the final audit added a pinned binary cache with opt-in trusted writes, serialized Docker publication and fixed multiline Go/Aube artifact paths. Local checks pass all 38 contracts after those additions. Final hosted verification of these additions is pending.
+
+Verification limits: no real Cloudflare deployment, GHCR publication, tap push, production release, infra dispatch or Tailscale policy apply is performed. Their guards/payloads/formula generation/tag publisher are checked locally; external credential, environment-protection and receiver configurations remain operator prerequisites. Hosted consumers cover Linux x64. macOS/ARM assets and self-hosted provisioning are documented but not executed in this suite. Application cold/warm performance needs representative consumer runs; fixture timings prove the setup contract only.
 
 ## Execution
 

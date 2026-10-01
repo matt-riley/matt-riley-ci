@@ -244,3 +244,6 @@ jobs:
     steps: *id002
     environment: ${{ inputs.environment }}
     if: ${{ inputs.push }}
+    concurrency:
+      group: docker-publish:${{ github.repository }}:${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/{0}', github.repository) }}
+      cancel-in-progress: false
