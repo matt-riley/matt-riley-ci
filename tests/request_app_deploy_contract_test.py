@@ -34,7 +34,7 @@ class RequestAppDeployContractTest(unittest.TestCase):
             env.update(overrides)
             return subprocess.run(['bash', '-c', self.script], env=env, text=True, capture_output=True)
 
-    def test_pages_dispatch_keeps_exact_source_identity(self):
+    def test_source_dispatch_keeps_exact_source_identity(self):
         result = self.run_dispatch()
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)['client_payload']
