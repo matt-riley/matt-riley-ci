@@ -4,6 +4,8 @@ Reusable GitHub Actions workflows with repository-owned tasks, small language ad
 
 This checkout defines the **next major contract (v4)**. Existing v1/v2/v3 tags keep their existing APIs. Replace `REVIEWED_COMMIT_SHA` in examples with the full tested commit SHA from this implementation/release; do not copy a future `@v4` ref before it exists. Read the [migration guide](docs/migration-v4.md) before upgrading.
 
+The [full review and assessment](docs/review.md) records what was good, every improvement, the performance evidence and remaining verification limits.
+
 ## Start with repository-owned CI
 
 Define tools and tasks in your own `mise.toml`. The workflow checks out your repository, not this library, so it cannot use this library's tasks or scripts.

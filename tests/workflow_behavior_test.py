@@ -255,6 +255,11 @@ run = "test -f count"
         self.assertNotIn('on_linux do', formula)
         self.assertIn("'--version', 'quoted arg'", formula)
         self.assertIn("it\\'s fine", formula)
+        self.okay(self.run_step('homebrew-formula.yml', 'formula', **dict(env, BINARY='dist/tool')))
+        nested_formula = (self.root / 'tool.rb').read_text()
+        self.assertIn("bin.install 'dist/tool'", nested_formula)
+        self.assertIn("system bin/'tool'", nested_formula)
+        self.assertNotIn("system bin/'dist/tool'", nested_formula)
         self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, CLASS_NAME='Tool;raise')).returncode)
 
     def test_tailscale_explicit_apply_cannot_bypass_default_branch_guard(self):

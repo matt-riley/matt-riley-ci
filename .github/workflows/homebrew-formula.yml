@@ -157,7 +157,7 @@ jobs:
                 count += 1
             if blocks: lines += ['  on_' + platform + ' do'] + blocks + ['  end']
         if not count: raise SystemExit('At least one platform archive is required')
-        lines += ['  def install', '    bin.install ' + ruby(e['BINARY']), '  end', '  test do', '    system bin/' + ruby(e['BINARY']) + ''.join(', ' + ruby(arg) for arg in shlex.split(e['TEST_ARGS'])), '  end', 'end']
+        lines += ['  def install', '    bin.install ' + ruby(e['BINARY']), '  end', '  test do', '    system bin/' + ruby(binary.name) + ''.join(', ' + ruby(arg) for arg in shlex.split(e['TEST_ARGS'])), '  end', 'end']
         formula = pathlib.Path(e['RUNNER_TEMP']) / (e['FORMULA_NAME'] + '.rb')
         formula.write_text('\n'.join(lines) + '\n')
         subprocess.run(['ruby', '-c', str(formula)], check=True)
