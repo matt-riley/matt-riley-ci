@@ -7,6 +7,7 @@ class ContractWorkflowRegistrationTest(unittest.TestCase):
         workflow = Path(".github/workflows/contract-tests.yml").read_text()
 
         self.assertIn("tests/request_infra_deploy_contract_test.py", workflow)
+        self.assertIn("tests/request_app_deploy_contract_test.py", workflow)
         self.assertIn("tests/contract_workflow_registration_test.py", workflow)
         self.assertIn("tests/ci_cache_contract_test.py", workflow)
         self.assertIn("tests/tailscale_acl_contract_test.py", workflow)
