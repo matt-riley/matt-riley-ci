@@ -78,6 +78,9 @@ jobs:
       install-tools: actionlint
       cache: false
   aube:
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/aube-ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
       working-directory: fixtures/node
