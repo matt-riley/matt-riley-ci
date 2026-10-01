@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   request:
-    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', inputs.production-branch)
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', inputs.production-branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
