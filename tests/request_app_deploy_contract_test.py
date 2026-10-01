@@ -38,6 +38,8 @@ class RequestAppDeployContractTest(unittest.TestCase):
         result = self.run_dispatch()
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)['client_payload']
+        self.assertEqual(payload['app'], payload['app_id'])
+        self.assertEqual('waffle', payload['app_id'])
         self.assertEqual('a' * 40, payload['source_sha'])
         self.assertEqual('matt-riley/waffle', payload['source_repo'])
         self.assertNotIn('artifact_run_id', payload)

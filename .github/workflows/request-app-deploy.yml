@@ -64,6 +64,6 @@ jobs:
           jq -n \
             --arg app "$APP" --arg repo "$SOURCE_REPO" --arg sha "$SOURCE_SHA" --arg ref "$SOURCE_REF" \
             --arg run "$RUN_ID" --arg name "$ARTIFACT_NAME" --arg digest "$ARTIFACT_DIGEST" \
-            '{event_type:"deploy-app",client_payload:({app:$app,source_repo:$repo,source_sha:$sha,ref:$ref} +
+            '{event_type:"deploy-app",client_payload:({app:$app,app_id:$app,source_repo:$repo,source_sha:$sha,ref:$ref} +
               (if $run == "" then {} else {artifact_run_id:$run,artifact_name:$name,artifact_digest:$digest} end))}' |
             gh api --method POST repos/matt-riley/infra/dispatches --input -
