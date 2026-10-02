@@ -117,7 +117,7 @@ name: Docker GHCR Publish
         description: Resolved image labels
         value: ${{ inputs.push && jobs.publish.outputs.labels || jobs.build.outputs.labels }}
       digest:
-        description: Published image digest
+        description: Build result digest; available in GHCR only when status is published
         value: ${{ inputs.push && jobs.publish.outputs.digest || jobs.build.outputs.digest }}
 jobs:
   build:

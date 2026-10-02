@@ -150,7 +150,7 @@ Docker GHCR Publish.
 - `image_name`: Resolved image name.
 - `tags`: Resolved image tags.
 - `labels`: Resolved image labels.
-- `digest`: Published image digest.
+- `digest`: Build result digest; available in GHCR only when status is published.
 
 ### Job permissions
 
@@ -266,7 +266,7 @@ Go Security.
 | --- | --- | --- | --- | --- |
 | go-version-file | string | False |  | Module file relative to repository root; empty resolves working-directory/go.mod |
 | runner | string | False | ubuntu-latest | Runner label |
-| working-directory | string | False | . | Directory to run govulncheck in |
+| working-directory | string | False | . | Directory to run govulncheck in; empty selects repository root |
 | govulncheck-version | string | False | v1.1.4 | govulncheck module version (e.g. v1.1.4; set latest to float) |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |

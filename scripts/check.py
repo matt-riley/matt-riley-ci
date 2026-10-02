@@ -88,7 +88,7 @@ def validate(directory):
                         raise ValueError('Invalid type for input ' + name)
             for job_name, job in workflow['jobs'].items():
                 validate_queue(job.get('concurrency'))
-                if 'uses' not in job and ('timeout-minutes' not in job or not (job.get('permissions') or workflow.get('permissions'))):
+                if 'uses' not in job and ('timeout-minutes' not in job or ('permissions' not in job and 'permissions' not in workflow)):
                     raise ValueError(job_name + ': explicit timeout and permissions required')
                 use = job.get('uses', '')
                 if use and set(job) - CALL_JOB_KEYS:

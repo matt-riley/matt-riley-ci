@@ -132,6 +132,8 @@ jobs:
                     path.relative_to(root)
                     if path == root: raise SystemExit('Artifact paths must select a child of the repository')
                     paths.append(('!' if negative else '') + str(path))
+                if os.environ[variable] and not any(not path.startswith('!') for path in paths):
+                    raise SystemExit(variable + ' requires at least one inclusion path')
                 delimiter = 'PATHS_' + uuid.uuid4().hex
                 out.write(name + '<<' + delimiter + '\n' + '\n'.join(paths) + '\n' + delimiter + '\n')
         PY

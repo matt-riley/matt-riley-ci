@@ -34,7 +34,11 @@ def render():
         lines += ['', '### Job permissions', '']
         for name, job in workflow['jobs'].items():
             permissions = job.get('permissions', workflow.get('permissions', {}))
-            lines += ['- `' + name + '`: ' + ', '.join('`' + key + ': ' + value + '`' for key, value in permissions.items()) + '.']
+            if isinstance(permissions, dict):
+                description = ', '.join('`' + key + ': ' + value + '`' for key, value in permissions.items()) or '`{}` (no token permissions)'
+            else:
+                description = '`' + str(permissions) + '`'
+            lines += ['- `' + name + '`: ' + description + '.']
         lines += ['']
     return '\n'.join(lines)
 

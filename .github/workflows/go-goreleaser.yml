@@ -128,7 +128,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
       with:
-        go-version-file: ${{ inputs.go-version-file != '' && inputs.go-version-file || format('{0}/go.mod', inputs.working-directory)
+        go-version-file: ${{ inputs.go-version-file != '' && inputs.go-version-file || format('{0}/go.mod', inputs.working-directory || '.')
           }}
         cache: false
     - name: Detect Go cache metadata
@@ -141,16 +141,16 @@ jobs:
           echo "build_cache=$(go env GOCACHE)"
         } >> "$GITHUB_OUTPUT"
         printf "scope=%s\n" "$(printf %s "$MODULE_DIR" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
-      working-directory: ${{ inputs.working-directory }}
+      working-directory: ${{ inputs.working-directory || '.' }}
       env:
-        MODULE_DIR: ${{ inputs.working-directory }}
+        MODULE_DIR: ${{ inputs.working-directory || '.' }}
     - name: Restore Go module cache
       if: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.go-cache-metadata.outputs.module_cache }}
         key: go-mod-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version
-          }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory), format('{0}/go.sum', inputs.working-directory))
+          }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory || '.'), format('{0}/go.sum', inputs.working-directory || '.'))
           }}
         restore-keys: |
           go-mod-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version }}-
@@ -161,10 +161,10 @@ jobs:
       with:
         path: ${{ steps.go-cache-metadata.outputs.build_cache }}
         key: go-build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version
-          }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory), format('{0}/go.sum', inputs.working-directory))
+          }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory || '.'), format('{0}/go.sum', inputs.working-directory || '.'))
           }}-${{ github.sha }}
         restore-keys: |
-          go-build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory), format('{0}/go.sum', inputs.working-directory)) }}-
+          go-build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory || '.'), format('{0}/go.sum', inputs.working-directory || '.')) }}-
       id: go-build-cache
     - name: Create GitHub App token for Homebrew tap
       id: app-token
@@ -216,7 +216,7 @@ jobs:
         distribution: goreleaser
         version: ${{ inputs.goreleaser-version }}
         args: ${{ steps.goreleaser-args.outputs.value }}
-        workdir: ${{ inputs.working-directory }}
+        workdir: ${{ inputs.working-directory || '.' }}
       env:
         GITHUB_TOKEN: ${{ !inputs.snapshot && (secrets.github-token || github.token) || '' }}
         HOMEBREW_TAP_GITHUB_TOKEN: ${{ !inputs.snapshot && (steps.app-token.outputs.token || secrets.homebrew-tap-token)

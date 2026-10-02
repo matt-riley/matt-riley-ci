@@ -54,3 +54,7 @@ In [consumer run 36906004644](https://github.com/matt-riley/matt-riley-ci/action
 Cache saves are authorized after the checks and required outputs succeed. A later summary/reporting error can still fail the job; it does not invalidate those checked outputs or roll back immutable caches. Publication queues for Docker images and Homebrew taps retain up to 100 pending jobs; overflow still cancels additional jobs.
 
 Dependency archives include the resolved cache-path set in both exact and fallback keys, so changing extra stores, exclusions or browser opt-in cannot produce a stale exact hit. Path ordering does not churn the namespace. Lint, module and build cache writes all require a successful lint outcome, including when continue-on-error is selected. The action's unconditional post-save is disabled; explicit restore/save actions manage the lint cache with OS/architecture/project/Go/linter/configuration identity and revision keys.
+
+Same-repository feature branches, including workflow_dispatch, are trusted for automatic cache reads. Only successful default-branch push/manual runs may be designated writers. These guards do not isolate sensitive archives from repository contributors or other workflows.
+
+Tailscale applies share a repository-wide max queue so default and explicit names for the same tailnet cannot race. Independent tailnets within that repository serialize too; tests retain independent run/attempt groups. GitHub groups cannot serialize callers from different repositories, so designate one authoritative publisher repository per tailnet.

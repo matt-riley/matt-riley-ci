@@ -316,7 +316,7 @@ jobs:
 
 ## tailscale-acl.yml
 
-Configure the Tailscale federated identity and restrict source workflow/repository/branch claims. Commit policy.hujson. PRs validate; default-branch pushes apply. Protect apply through the environment input and Tailscale identity policy. The protected environment is bound only to applies; authorize the appropriate environment-free test context as well. [GitHub OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc#example-subject-claims) differ between environment jobs and PR/branch jobs; use the actual subject format configured for your repository.
+Configure the Tailscale federated identity and restrict source workflow/repository/branch claims. Commit policy.hujson. Same-repository PRs validate; fork PRs skip authenticated checks and are validated after trusted maintainer review. Default-branch pushes apply. Protect apply through the environment input and Tailscale identity policy. The protected environment is bound only to applies; authorize the appropriate environment-free test context as well. [GitHub OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc#example-subject-claims) differ between environment jobs and PR/branch jobs; use the actual subject format configured for your repository.
 
 ```yaml
 name: Tailscale ACL

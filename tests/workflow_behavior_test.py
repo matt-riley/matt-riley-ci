@@ -19,6 +19,11 @@ def workflow(name):
     return yaml.safe_load((ROOT / '.github/workflows' / name).read_text())
 
 
+def workflow_files():
+    directory = ROOT / '.github/workflows'
+    return sorted(set(directory.glob('*.yml')) | set(directory.glob('*.yaml')))
+
+
 def step(name, identity):
     return next(s for job in workflow(name)['jobs'].values() for s in job.get('steps', []) if s.get('id', s.get('name')) == identity)
 
@@ -62,7 +67,7 @@ class Scripts(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_all_embedded_python_compiles_and_shells_parse(self):
-        for path in (ROOT / '.github/workflows').glob('*.yml'):
+        for path in workflow_files():
             for job in yaml.safe_load(path.read_text())['jobs'].values():
                 for script in job.get('steps', []):
                     if 'run' not in script:
@@ -124,12 +129,29 @@ run = "test -f count"
 
     def test_cache_saves_follow_required_artifact_uploads(self):
         for name in ['ci.yml', 'go-ci.yml']:
-            steps = next(job['steps'] for job in workflow(name)['jobs'].values() if 'steps' in job)
-            uploads = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/upload-artifact@')]
-            saves = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/cache/save@')]
-            self.assertLess(max(uploads), min(saves))
-            for index in saves:
-                self.assertIn('success()', steps[index]['if'])
+            for job in workflow(name)['jobs'].values():
+                steps = job.get('steps', [])
+                uploads = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/upload-artifact@')]
+                saves = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/cache/save@')]
+                if uploads and saves:
+                    self.assertLess(max(uploads), min(saves))
+                for index in saves:
+                    self.assertIn('success()', steps[index]['if'])
+
+    def test_configured_artifact_paths_require_an_inclusion(self):
+        for name, identity, variable in [('ci.yml', 'paths', 'BUILD_PATHS'), ('go-ci.yml', 'paths', 'COVERAGE_PATHS'), ('aube-ci.yml', 'paths', 'COVERAGE_PATHS')]:
+            for paths in ['   ', '\n\t\n', '!coverage/private']:
+                env = {'BUILD_PATHS': '', 'COVERAGE_PATHS': '', 'FAILURE_PATHS': '', variable: paths}
+                result = self.run_step(name, identity, **env)
+                self.assertNotEqual(0, result.returncode, (name, paths))
+                self.assertIn('at least one inclusion', result.stderr)
+
+    def test_go_empty_directory_resolves_to_repository_module(self):
+        for name in ['go-ci.yml', 'go-lint.yml', 'go-security.yml', 'go-goreleaser.yml']:
+            setup = step(name, 'Set up Go')['with']['go-version-file']
+            self.assertEqual('./go.mod', expression(setup, **{'go-version-file': '', 'working-directory': ''}))
+            self.assertEqual('nested/go.mod', expression(setup, **{'go-version-file': '', 'working-directory': 'nested'}))
+            self.assertEqual('tools/go.mod', expression(setup, **{'go-version-file': 'tools/go.mod', 'working-directory': ''}))
 
     def test_artifact_names_fail_before_build_for_backend_forbidden_characters(self):
         for name in ['packages/server', 'back\\slash', 'a:b', 'a"b', 'a<b', 'a>b', 'a|b', 'a*b', 'a?b', 'a\rb', 'a\nb', 'coverage server-α']:
@@ -275,7 +297,7 @@ run = "test -f count"
                 for callee in target['jobs'].values():
                     for key, level in callee.get('permissions', target.get('permissions', {})).items():
                         self.assertGreaterEqual(rank[permissions.get(key, 'none')], rank[level], name + ': ' + key)
-        expected = {p.name for p in (ROOT / '.github/workflows').glob('*.yml') if p.name != 'contract-tests.yml' and isinstance(workflow(p.name).get('on', workflow(p.name).get(True)), dict) and 'workflow_call' in workflow(p.name).get('on', workflow(p.name).get(True))}
+        expected = {p.name for p in workflow_files() if p.name != 'contract-tests.yml' and isinstance(workflow(p.name).get('on', workflow(p.name).get(True)), dict) and 'workflow_call' in workflow(p.name).get('on', workflow(p.name).get(True))}
         self.assertEqual(expected, documented)
 
     def test_luacheck_checks_asset_bytes_before_exposing_or_executing(self):
@@ -297,13 +319,13 @@ run = "test -f count"
         self.assertNotEqual(0, self.run_step('nvim-lint.yml', 'Install luacheck', **dict(args, EXPECTED_SHA256='invalid')).returncode)
         self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
 
-    def test_neovim_and_stylua_verify_archives_before_extracting(self):
+    def test_pinned_and_explicit_archives_verify_before_extracting(self):
         import hashlib
         digest = hashlib.sha256(b'fixture asset').hexdigest()
-        self.stub('gh', '''import json, pathlib, sys
+        self.stub('gh', '''import json, os, pathlib, sys
 a = sys.argv
 if a[1:3] == ['release', 'view']:
-    print(json.dumps({'assets': [{'name':'nvim-linux-x86_64.tar.gz', 'digest':'sha256:''' + digest + ''''}]}))
+    print(json.dumps({'assets': [{'name':os.environ.get('METADATA_NAME', 'nvim-linux-x86_64.tar.gz'), 'digest':'sha256:''' + digest + ''''}]}))
 else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'fixture asset')
 ''')
         for command in ['tar', 'unzip']:
@@ -321,6 +343,12 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                 self.assertTrue((self.root / 'extracted').exists())
                 (self.root / 'extracted').unlink()
         self.okay(self.run_step('nvim-tests.yml', 'Install Neovim', VERSION='nightly', EXPECTED_SHA256=''))
+        (self.root / 'extracted').unlink()
+        Path(self.env['GITHUB_PATH']).unlink()
+        result = self.run_step('nvim-tests.yml', 'Install Neovim', VERSION='nightly', EXPECTED_SHA256='', METADATA_NAME='unrelated-asset.tar.gz')
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.root / 'extracted').exists())
+        self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
 
     def test_validation_runner_jobs_have_read_only_permissions(self):
         suite = workflow('contract-tests.yml')
@@ -726,6 +754,7 @@ os.execv({real_git!r}, [{real_git!r}] + a)
         pr_test = expression(acl, event='pull_request', ref='refs/pull/1/merge', action='', tailnet='example')
         explicit_test = expression(acl, action='test', tailnet='example')
         self.assertEqual(auto_apply, explicit_apply)
+        self.assertEqual(auto_apply, expression(acl, action='apply', tailnet='-'))
         self.assertEqual(pr_test, explicit_test)
         self.assertNotEqual(auto_apply, pr_test)
         self.assertNotEqual(pr_test, expression(acl, event='pull_request', action='', tailnet='example', run_id=2))
@@ -786,10 +815,32 @@ if 'ls-remote' in args:
         self.assertNotEqual(0, self.run_step('tailscale-acl.yml', 'resolve', **env).returncode)
         self.okay(self.run_step('tailscale-acl.yml', 'resolve', **dict(env, EVENT_NAME='push', REF='refs/heads/main')))
 
+    def test_tailscale_skips_fork_authentication(self):
+        guard = workflow('tailscale-acl.yml')['jobs']['acl']['if']
+        for event, source, allowed in [('pull_request', 'fork/project', False), ('pull_request_target', 'fork/project', False), ('pull_request', 'owner/project', True), ('push', 'owner/project', True), ('workflow_dispatch', 'owner/project', True)]:
+            self.assertEqual(str(allowed), expression(guard, event=event, source=source))
+
+    def test_major_tag_push_failure_and_remote_mismatch_fail(self):
+        checkout = step('repository-release-please.yml', 'Checkout')['with']
+        self.assertEqual('${{ secrets.RELEASE_TAG_TOKEN || github.token }}', checkout['token'])
+        self.assertFalse(checkout['persist-credentials'])
+        self.stub('git', '''import os, sys
+args = sys.argv[1:]
+if 'rev-list' in args: print('a' * 40)
+if 'ls-remote' in args: print('b' * 40 + '\\trefs/tags/v1')
+if 'push' in args and os.environ['FAIL_PUSH'] == 'true': sys.exit(1)
+''')
+        for failed_push in ['true', 'false']:
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            result = self.run_step('repository-release-please.yml', 'move', TAG_NAME='v1.2.3', TESTED_SHA='a' * 40, PUSH_TOKEN='fake-token', HAS_TAG_TOKEN='true', FAIL_PUSH=failed_push)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn('Push failed' if failed_push == 'true' else 'Remote major tag does not point', result.stdout + result.stderr)
+            self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
+
     def test_no_broad_install_or_implicit_browser_setup_in_library(self):
         mise = step('ci.yml', 'Install mise')['with']
         self.assertEqual('${{ inputs.install-tools }}', mise['install_args'])
-        for path in (ROOT / '.github/workflows').glob('*.yml'):
+        for path in workflow_files():
             self.assertNotIn('apt-get', path.read_text())
         self.assertNotIn('playwright install', (ROOT / 'mise.toml').read_text())
 
@@ -849,6 +900,29 @@ class Policy(unittest.TestCase):
             path = workflows / 'fixture.yaml'
             path.write_text(path.read_text().replace('Original', 'Changed'))
             self.assertNotEqual(first, reference.render())
+
+    def test_policy_accepts_explicit_empty_permissions_but_rejects_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = {'on': 'push', 'jobs': {'run': {'runs-on': 'ubuntu-latest', 'timeout-minutes': 5, 'steps': [{'run': 'echo okay'}]}}}
+            for scope in ['workflow', 'job', 'missing']:
+                document = json.loads(json.dumps(base))
+                if scope == 'workflow': document['permissions'] = {}
+                if scope == 'job': document['jobs']['run']['permissions'] = {}
+                (root / 'test.yml').write_text(yaml.safe_dump(document))
+                self.assertEqual(scope == 'missing', bool(self.checks.validate(root)), scope)
+
+    def test_reference_renders_permission_scalars_and_empty_mappings(self):
+        spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')
+        reference = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reference)
+        with tempfile.TemporaryDirectory() as directory:
+            reference.ROOT = Path(directory)
+            workflows = reference.ROOT / '.github/workflows'
+            workflows.mkdir(parents=True)
+            for permissions, rendered in [('read-all', '`read-all`'), ('write-all', '`write-all`'), ({}, '`{}`')]:
+                (workflows / 'fixture.yml').write_text(yaml.safe_dump({'name': 'Fixture', 'on': {'workflow_call': {}}, 'jobs': {'run': {'permissions': permissions}}}))
+                self.assertIn(rendered, reference.render())
 
     def test_policy_rejects_empty_duplicate_yaml_and_unpinned_job_or_docker_uses(self):
         with tempfile.TemporaryDirectory() as directory:
