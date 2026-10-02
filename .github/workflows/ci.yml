@@ -166,6 +166,7 @@ jobs:
       env:
         ARTIFACT_PATH: ${{ inputs.artifact-path }}
         ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        FAILURE_NAME: ${{ inputs.failure-artifact-name }}
         RETENTION: ${{ inputs.artifact-retention-days }}
       run: |
         if { [ -n "$ARTIFACT_PATH" ] && [ -z "$ARTIFACT_NAME" ]; } || { [ -z "$ARTIFACT_PATH" ] && [ -n "$ARTIFACT_NAME" ]; }; then
@@ -174,6 +175,9 @@ jobs:
         [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo '::error::Artifact retention must be a positive integer'; exit 1; }
         python3 - <<'PY'
         import os
+        for variable in ['ARTIFACT_NAME', 'FAILURE_NAME']:
+            if any(char in os.environ.get(variable, '') for char in '\"/:<>|*?\\\r\n'):
+                raise SystemExit(variable + ' contains a character forbidden in artifact names')
         if int(os.environ['RETENTION']) > int(os.environ.get('GITHUB_RETENTION_DAYS', '90')):
             raise SystemExit('Artifact retention exceeds the repository limit')
         PY

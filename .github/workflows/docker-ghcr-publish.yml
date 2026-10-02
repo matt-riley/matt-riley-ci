@@ -57,6 +57,16 @@ name: Docker GHCR Publish
         required: false
         default: true
         type: boolean
+      cache:
+        description: Restore and export BuildKit caches; disable for private source or dependencies
+        required: false
+        default: true
+        type: boolean
+      save-cache:
+        description: Allow build-only cache writes on default-branch push/manual runs; designate one writer
+        required: false
+        default: false
+        type: boolean
       provenance:
         description: Enable provenance attestation in docker/build-push-action
         required: false
@@ -217,8 +227,8 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: ${{ inputs.build-args }}
-        cache-from: type=gha,scope=${{ steps.image.outputs.scope }}
-        cache-to: ${{ inputs.push && format('type=gha,mode=max,scope={0}', steps.image.outputs.scope) || '' }}
+        cache-from: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) && format('type=gha,scope={0}', steps.image.outputs.scope) || '' }}
+        cache-to: ${{ inputs.cache && (inputs.push || (inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && format('type=gha,mode=max,scope={0}', steps.image.outputs.scope) || '' }}
         provenance: ${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.provenance }}
         sbom: ${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.sbom }}
         file: ${{ inputs.dockerfile }}

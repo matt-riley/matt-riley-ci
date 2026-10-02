@@ -112,6 +112,9 @@ jobs:
       run: |
         python3 - <<'PY'
         import os, pathlib, uuid
+        for variable in ['COVERAGE_NAME']:
+            if any(char in os.environ.get(variable, '') for char in '\"/:<>|*?\\\r\n'):
+                raise SystemExit(variable + ' contains a character forbidden in artifact names')
         root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
         cwd = pathlib.Path.cwd().resolve()
         if os.environ['COVERAGE_PATHS'] and not os.environ['COVERAGE_NAME'].strip(): raise SystemExit('Set a unique coverage-artifact-name with coverage-path')

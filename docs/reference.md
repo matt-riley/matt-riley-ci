@@ -131,6 +131,8 @@ Docker GHCR Publish.
 | platforms | string | False | linux/amd64 | Build platforms |
 | checkout-fetch-depth | number | False | 1 | Fetch depth for actions/checkout |
 | push | boolean | False | True | Push image to registry |
+| cache | boolean | False | True | Restore and export BuildKit caches; disable for private source or dependencies |
+| save-cache | boolean | False | False | Allow build-only cache writes on default-branch push/manual runs; designate one writer |
 | provenance | boolean | False | True | Enable provenance attestation in docker/build-push-action |
 | sbom | boolean | False | True | Enable SBOM generation in docker/build-push-action |
 | timeout-minutes | number | False | 30 | Job timeout in minutes |

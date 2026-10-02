@@ -59,7 +59,7 @@ jobs:
 
 `ci` is the default task. Enabled phase flags select repository tasks named install/lint/build/test/vet/fmt instead; `task-prefix` prepends a namespace. Shared dependencies run once in a single graph. A missing task is an error. The default `task-jobs: 1` avoids unexpected concurrent phases; choose parallelism after declaring task dependencies. Cancellation belongs to the caller; the library's independent CI jobs never share a concurrency lock.
 
-For a monorepo, set `working-directory: packages/server`. Artifact and diagnostic paths are relative to that directory. Add `cache-paths` and `cache-dependency-path` for ecosystem-specific caches. Universal and native Go adapters support `cache: false` to disable their dependency/build/tool caches. See [performance guidance](docs/performance.md), especially when Playwright system dependency installation dominates setup time.
+For a monorepo, set `working-directory: packages/server`. Artifact and diagnostic paths are relative to that directory. Add `cache-paths` and `cache-dependency-path` for ecosystem-specific caches. Universal and native Go adapters support `cache: false` to disable their dependency/build/tool caches; Docker supports the same input for BuildKit restores and exports. See [performance guidance](docs/performance.md), especially when Playwright system dependency installation dominates setup time.
 
 ## Workflow catalog
 

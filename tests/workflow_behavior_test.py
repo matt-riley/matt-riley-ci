@@ -118,6 +118,17 @@ run = "test -f count"
             result = self.run_step('ci.yml', 'Validate CI inputs', ARTIFACT_PATH='', ARTIFACT_NAME='', RETENTION=retention, GITHUB_RETENTION_DAYS=limit)
             self.assertEqual(okay, result.returncode == 0, result.stdout + result.stderr)
 
+    def test_artifact_names_fail_before_build_for_backend_forbidden_characters(self):
+        for name in ['packages/server', 'back\\slash', 'a:b', 'a"b', 'a<b', 'a>b', 'a|b', 'a*b', 'a?b', 'a\rb', 'a\nb', 'coverage server-α']:
+            valid = name == 'coverage server-α'
+            cases = [('ci.yml', 'Validate CI inputs', dict(ARTIFACT_PATH='dist', ARTIFACT_NAME=name, RETENTION='7'))]
+            cases += [(workflow_name, 'paths', dict(COVERAGE_PATHS='coverage.out', COVERAGE_NAME=name, FAILURE_PATHS='')) for workflow_name in ['go-ci.yml', 'aube-ci.yml']]
+            cases += [('ci.yml', 'Validate CI inputs', dict(ARTIFACT_PATH='', ARTIFACT_NAME='', FAILURE_NAME=name, RETENTION='7')), ('go-ci.yml', 'paths', dict(COVERAGE_PATHS='', FAILURE_PATHS='logs', FAILURE_NAME=name))]
+            for workflow_name, identity, env in cases:
+                with self.subTest(workflow=workflow_name, name=name, env=env):
+                    result = self.run_step(workflow_name, identity, **env)
+                    self.assertEqual(valid, result.returncode == 0, result.stdout + result.stderr)
+
     def test_adapter_artifact_paths_apply_nested_directory_to_every_line(self):
         for name in ['go-ci.yml', 'aube-ci.yml']:
             Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
@@ -437,6 +448,27 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
     def docker_env(self, **changes):
         defaults = dict(IMAGE_NAME='', CONTEXT='.', DOCKERFILE='', PLATFORMS='linux/amd64', CACHE_SCOPE='', TAG='', PUSH='false', LOAD='false', OUTPUTS='', DEFAULT_BRANCH='main')
         return dict(defaults, **changes)
+
+    def test_docker_cache_restores_and_writes_respect_trust_and_opt_out(self):
+        build = step('docker-ghcr-publish.yml', 'build')['with']
+        context = SimpleNamespace(image=SimpleNamespace(outputs=SimpleNamespace(scope='fixture')))
+        for event, ref, source, cache, save, push, restore, write in [
+            ('pull_request', 'refs/pull/1/merge', 'fork/project', True, True, False, False, False),
+            ('pull_request_target', 'refs/heads/main', 'fork/project', True, True, False, False, False),
+            ('pull_request', 'refs/pull/1/merge', 'owner/project', True, True, False, True, False),
+            ('push', 'refs/heads/main', 'owner/project', True, False, False, True, False),
+            ('push', 'refs/heads/main', 'owner/project', True, True, False, True, True),
+            ('workflow_dispatch', 'refs/heads/main', 'owner/project', True, True, False, True, True),
+            ('push', 'refs/heads/feature', 'owner/project', True, True, False, True, False),
+            ('push', 'refs/tags/v1.0.0', 'owner/project', True, False, True, True, True),
+            ('push', 'refs/heads/main', 'owner/project', False, True, True, False, False),
+        ]:
+            with self.subTest(event=event, ref=ref, cache=cache, save=save, push=push):
+                inputs = {'cache': cache, 'save-cache': save, 'push': push}
+                for key, expected in [('cache-from', restore), ('cache-to', write)]:
+                    result = expression(build[key], event=event, ref=ref, source=source, steps_context=context, **inputs)
+                    self.assertEqual('type=gha,' in result, expected, result)
+        self.assertFalse(workflow('contract-tests.yml')['jobs']['docker-export']['with']['cache'])
 
     def test_docker_prereleases_do_not_tag_latest_or_install_unneeded_qemu(self):
         self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(TAG='v2.1.0', PUSH='true', GITHUB_REF='refs/tags/v2.1.0')))

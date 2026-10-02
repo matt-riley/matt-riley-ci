@@ -107,10 +107,15 @@ jobs:
       id: paths
       env:
         COVERAGE_PATHS: ${{ inputs.coverage-path }}
+        COVERAGE_NAME: ${{ inputs.coverage-artifact-name }}
+        FAILURE_NAME: ${{ inputs.failure-artifact-name }}
         FAILURE_PATHS: ${{ inputs.failure-artifact-path }}
       run: |
         python3 - <<'PY'
         import os, pathlib, uuid
+        for variable in ['COVERAGE_NAME', 'FAILURE_NAME']:
+            if any(char in os.environ.get(variable, '') for char in '\"/:<>|*?\\\r\n'):
+                raise SystemExit(variable + ' contains a character forbidden in artifact names')
         root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
         cwd = pathlib.Path.cwd().resolve()
         with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
