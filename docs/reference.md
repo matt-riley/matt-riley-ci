@@ -329,7 +329,7 @@ Neovim Format (stylua).
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | paths | string | False | lua/ plugin/ tests/ | Shell-style quoted path list, passed as arguments without shell evaluation |
-| runner | string | False | ubuntu-latest | Runner label |
+| runner | string | False | ubuntu-latest | Runner label; self-hosted runners must provision gh, Python 3 and archive tools |
 | stylua-version | string | False | v2.4.0 | Pinned stylua release |
 | stylua-sha256 | string | False |  | Reviewed asset SHA-256 for version overrides; empty uses pinned per-platform v2.4.0 digests |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
@@ -354,7 +354,7 @@ Neovim Lint (luacheck).
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | paths | string | False | lua/ plugin/ tests/ | Shell-style quoted path list, passed as arguments without shell evaluation |
-| runner | string | False | ubuntu-latest | Runner label |
+| runner | string | False | ubuntu-latest | Runner label; self-hosted runners must provision gh, Python 3 and archive tools |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | working-directory | string | False | . | Directory containing Lua sources and tool configuration |
 | luacheck-version | string | False | v1.2.0 | Pinned luacheck release |
@@ -381,7 +381,7 @@ Neovim Tests (mini.test).
 | neovim-version | string | False | v0.12.5 | Exact Neovim release tag, or nightly for intentional compatibility testing |
 | neovim-sha256 | string | False |  | Reviewed asset SHA-256 for release overrides; default release is pinned per platform, nightly uses GitHub asset metadata |
 | mini-version | string | False | a995fe9cd4193fb492b5df69175a351a74b3d36b | Immutable mini.nvim commit SHA (default: v0.17.0) |
-| runner | string | False | ubuntu-latest | Runner label |
+| runner | string | False | ubuntu-latest | Runner label; self-hosted runners must provision gh, Python 3 and archive tools |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | working-directory | string | False | . | Directory containing plugin and tests |
 | minimal-init | string | False | tests/minimal_init.lua | Neovim init file relative to working-directory |
@@ -521,7 +521,7 @@ Tailscale ACL.
 | oauth-client-id | string | True |  | Tailscale federated identity client ID (not a secret) |
 | audience | string | True |  | Audience the federated identity expects, e.g. api.tailscale.com/<client id> (not a secret) |
 | policy-file | string | False | policy.hujson | Path to the HuJSON policy file, relative to the repository root |
-| action | string | False |  | 'test', 'apply', or '' to test on pull requests and apply on pushes to the default branch |
+| action | string | False |  | Test/apply; empty tests except default-branch pushes. Explicit apply requires default-branch push or workflow_dispatch. |
 | runner | string | False | ubuntu-latest | Runner label |
 | timeout-minutes | number | False | 10 | Job timeout in minutes |
 | environment | string | False |  | Optional protected environment for apply runs; tests use no environment |

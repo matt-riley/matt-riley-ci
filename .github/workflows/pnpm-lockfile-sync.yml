@@ -69,11 +69,20 @@ jobs:
       env:
         PREFIX: ${{ inputs.release-branch-prefix }}
         LOCKFILE: ${{ inputs.lockfile-name }}
+        PNPM_VERSION: ${{ inputs.pnpm-version }}
+        PACKAGE_JSON: ${{ format('{0}/package.json', inputs.working-directory) }}
       shell: bash
       run: |
         test -n "$PREFIX" || { echo '::error::release-branch-prefix must not be empty'; exit 1; }
         [[ "$LOCKFILE" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo '::error::lockfile-name must be a filename'; exit 1; }
         [[ "$LOCKFILE" != . && "$LOCKFILE" != .. ]] || { echo '::error::lockfile-name cannot be a directory'; exit 1; }
+        python3 - <<'PY'
+        import json, os, pathlib
+        if not os.environ['PNPM_VERSION']:
+            package = json.loads(pathlib.Path(os.environ['PACKAGE_JSON']).read_text())
+            if not package.get('packageManager', '').startswith('pnpm@'):
+                raise SystemExit('Set pnpm-version or declare packageManager: pnpm@<version> in package.json')
+        PY
     - name: Install pnpm
       uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
       with:

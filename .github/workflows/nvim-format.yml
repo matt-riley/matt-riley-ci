@@ -8,7 +8,7 @@ name: Neovim Format (stylua)
         default: lua/ plugin/ tests/
         type: string
       runner:
-        description: Runner label
+        description: Runner label; self-hosted runners must provision gh, Python 3 and archive tools
         required: false
         default: ubuntu-latest
         type: string
@@ -49,6 +49,9 @@ jobs:
         EXPECTED_SHA256: ${{ inputs.stylua-sha256 }}
         GH_TOKEN: ${{ github.token }}
       run: |
+        for executable in gh python3 unzip; do
+          command -v "$executable" >/dev/null || { echo "::error::Runner prerequisite missing: $executable. Provision it on self-hosted runners."; exit 1; }
+        done
         case "$RUNNER_OS/$RUNNER_ARCH" in
           Linux/X64) asset=stylua-linux-x86_64.zip;;
           Linux/ARM64) asset=stylua-linux-aarch64.zip;;

@@ -18,7 +18,7 @@ name: Neovim Tests (mini.test)
         default: a995fe9cd4193fb492b5df69175a351a74b3d36b
         type: string
       runner:
-        description: Runner label
+        description: Runner label; self-hosted runners must provision gh, Python 3 and archive tools
         required: false
         default: ubuntu-latest
         type: string
@@ -59,6 +59,9 @@ jobs:
         EXPECTED_SHA256: ${{ inputs.neovim-sha256 }}
         GH_TOKEN: ${{ github.token }}
       run: |
+        for executable in gh python3 tar git; do
+          command -v "$executable" >/dev/null || { echo "::error::Runner prerequisite missing: $executable. Provision it on self-hosted runners."; exit 1; }
+        done
         case "$RUNNER_OS/$RUNNER_ARCH" in
           Linux/X64) platform=linux-x86_64;;
           Linux/ARM64) platform=linux-arm64;;

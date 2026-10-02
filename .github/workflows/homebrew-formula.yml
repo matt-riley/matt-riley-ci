@@ -208,17 +208,34 @@ jobs:
         git add -- "Formula/$FORMULA_NAME.rb"
         if git diff --cached --quiet; then echo 'status=unchanged' >> "$GITHUB_OUTPUT"; exit 0; fi
         git commit -m "chore: update $FORMULA_NAME to $TAG"
-        PUSH_REF=HEAD
         # shellcheck disable=SC2016
-        git -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' push origin "$PUSH_REF"
-        echo 'status=published' >> "$GITHUB_OUTPUT"
+        authenticated_git() {
+          git -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' "$@"
+        }
+        branch="$(git symbolic-ref --short HEAD)"
+        for attempt in 1 2 3; do
+          if authenticated_git push origin "HEAD:refs/heads/$branch"; then
+            echo 'status=published' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Groups are repository-scoped. Another caller may advance this tap.
+          authenticated_git fetch --no-tags origin "refs/heads/$branch"
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo '::error::Tap push failed without a concurrent branch update'; exit 1
+          fi
+          if ! git rebase FETCH_HEAD; then
+            git rebase --abort
+            echo '::error::Concurrent tap update conflicts with this formula; retry after review'; exit 1
+          fi
+          printf 'Retrying tap publication after concurrent update (attempt %s)\n' "$attempt"
+        done
+        echo '::error::Tap changed repeatedly; publication retry limit reached'; exit 1
       shell: bash
     - name: Summary
       if: ${{ always() }}
       shell: bash
       env:
         SUMMARY_TITLE: Homebrew formula
-        FIELD_0: ${{ steps.publish.outputs.status || steps.auth.outputs.status || 'failed' }}
+        FIELD_0: ${{ steps.publish.outputs.status || (steps.auth.outputs.status == 'skipped' && 'skipped') || 'failed' }}
         FIELD_1: ${{ steps.formula.outcome }}
         JOB_STATUS: ${{ job.status }}
       run: |

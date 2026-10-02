@@ -23,18 +23,19 @@ def step(name, identity):
     return next(s for job in workflow(name)['jobs'].values() for s in job.get('steps', []) if s.get('id', s.get('name')) == identity)
 
 
-def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, **inputs):
+def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, **inputs):
     """Evaluate the simple boolean/string GitHub expressions used by these guards."""
-    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref,
+    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref, run_id=run_id, run_attempt=run_attempt,
         event=SimpleNamespace(repository=SimpleNamespace(default_branch='main'),
             pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=source)))))
     def evaluate(match):
         code = match.group(1).replace('&&', 'and').replace('||', 'or')
         code = re.sub(r'!(?!=)', 'not ', code)
         code = re.sub(r'\binputs\.([A-Za-z0-9_-]+)', lambda item: "inputs[" + repr(item.group(1)) + "]", code)
-        code = code.replace('steps.cache-metadata', 'steps.cache_metadata')
+        code = re.sub(r'\bsteps\.([A-Za-z0-9_-]+)', lambda item: 'steps.' + item.group(1).replace('-', '_'), code)
+        code = re.sub(r'\.outputs\.([A-Za-z0-9_-]+)', lambda item: '.outputs.' + item.group(1).replace('-', '_'), code)
         steps = steps_context or SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
-        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'format': lambda text, *args: text.format(*args)}))
+        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: True, 'format': lambda text, *args: text.format(*args)}))
     return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', evaluate, value)
 
 
@@ -93,7 +94,7 @@ class Scripts(unittest.TestCase):
             self.fail('mise must be installed to verify task graph behavior')
         (self.bin / 'mise').symlink_to(mise)
         (self.project / 'mise.toml').write_text('''[tasks.install]
-run = "echo install >> count"
+run = "sleep 0.1; echo install >> count"
 [tasks.build]
 depends = ["install"]
 run = "test -f count"
@@ -142,6 +143,9 @@ run = "test -f count"
                     self.assertEqual(valid, result.returncode == 0, result.stdout + result.stderr)
 
     def test_adapter_artifact_paths_apply_nested_directory_to_every_line(self):
+        guard = step('go-ci.yml', 'Validate coverage inputs')['if']
+        for path, name, run, rejected in [('coverage.out', '', True, True), ('', 'report', True, True), ('coverage.out', 'report', False, True), ('coverage.out', 'report', True, False), ('', '', False, False)]:
+            self.assertEqual(str(rejected), expression(guard, **{'coverage-path': path, 'coverage-artifact-name': name, 'run-test': run}))
         for name in ['go-ci.yml', 'aube-ci.yml']:
             Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
             self.okay(self.run_step(name, 'paths', COVERAGE_PATHS='coverage.out\nreports/*.xml\n!reports/private', FAILURE_PATHS='logs\nerrors'))
@@ -184,6 +188,47 @@ run = "test -f count"
         self.assertIn(str(Path.home() / '.cache/global'), output)
         self.assertIn('/tmp/absolute-cache', output)
         self.assertIn('!' + str(self.project.resolve() / '.cache/private'), output)
+
+    def test_dependency_cache_keys_change_with_the_actual_path_set(self):
+        digests = []
+        for paths, browsers in [('compiler', 'false'), ('compiler\nother', 'false'), ('compiler', 'true'), ('compiler', 'false'), ('other\ncompiler', 'false')]:
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            self.okay(self.run_step('ci.yml', 'cache-metadata', EXTRA_PATHS=paths, PLAYWRIGHT_CACHE=browsers))
+            digests.append(re.search(r'path_set=(.*)', Path(self.env['GITHUB_OUTPUT']).read_text()).group(1))
+        self.assertEqual(digests[0], digests[3])
+        self.assertEqual(digests[1], digests[4])
+        self.assertEqual(3, len(set(digests)))
+        cache = step('ci.yml', 'dependencies')['with']
+        for key in ['key', 'restore-keys']:
+            self.assertIn('steps.cache-metadata.outputs.path_set', cache[key])
+
+    def test_advisory_lint_failures_cannot_write_any_lint_cache(self):
+        job = workflow('go-lint.yml')['jobs']['lint']
+        for outcome in ['success', 'failure']:
+            outputs = SimpleNamespace(cache_hit='false')
+            context = SimpleNamespace(lint=SimpleNamespace(outcome=outcome), go_module_cache=SimpleNamespace(outputs=outputs), go_build_cache=SimpleNamespace(outputs=outputs), lint_cache=SimpleNamespace(outputs=outputs))
+            expressions = [item['if'] for item in job['steps'] if item.get('uses', '').startswith('actions/cache/save@')]
+            for guard in expressions:
+                self.assertEqual(str(outcome == 'success'), expression(guard, steps_context=context, cache=True, **{'save-cache': True}))
+                self.assertEqual('False', expression(guard, event='pull_request', steps_context=context, cache=True, **{'save-cache': True}))
+        lint = step('go-lint.yml', 'lint')
+        self.assertTrue(lint['with']['skip-save-cache'])
+        self.assertTrue(lint['with']['skip-cache'])
+        self.assertEqual(lint['env']['GOLANGCI_LINT_CACHE'], step('go-lint.yml', 'lint-cache')['with']['path'])
+
+    def test_all_explicit_cache_writers_require_opt_in_and_default_branch_authority(self):
+        outputs = SimpleNamespace(cache_hit='false', cache_primary_key='fixture', cacheable='true')
+        context = SimpleNamespace(**{name: SimpleNamespace(outputs=outputs) for name in ['dependencies', 'go_build_cache', 'go_module_cache', 'scanner_cache', 'scanner', 'lint_cache']}, lint=SimpleNamespace(outcome='success'))
+        for name in ['ci.yml', 'go-ci.yml', 'go-lint.yml', 'go-security.yml', 'go-goreleaser.yml']:
+            for job in workflow(name)['jobs'].values():
+                for item in job.get('steps', []):
+                    if item.get('uses', '').startswith('actions/setup-go@'):
+                        self.assertFalse(item['with']['cache'])
+                    if not item.get('uses', '').startswith('actions/cache/save@'):
+                        continue
+                    for event, ref, enabled, save, allowed in [('push', 'refs/heads/main', True, True, True), ('workflow_dispatch', 'refs/heads/main', True, True, True), ('push', 'refs/heads/feature', True, True, False), ('pull_request', 'refs/heads/main', True, True, False), ('pull_request_target', 'refs/heads/main', True, True, False), ('push', 'refs/heads/main', False, True, False), ('push', 'refs/heads/main', True, False, False)]:
+                        with self.subTest(workflow=name, step=item['name'], event=event, ref=ref, enabled=enabled, save=save):
+                            self.assertEqual(str(allowed), expression(item['if'], event=event, ref=ref, steps_context=context, cache=enabled, **{'save-cache': save}))
 
     def test_dependency_cache_fallback_cannot_match_a_build_cache(self):
         dependencies = step('ci.yml', 'dependencies')['with']
@@ -547,6 +592,8 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
             self.assertNotEqual(0, self.run_step('cloudflare-pages-deploy.yml', 'source', **dict(args, **changes)).returncode)
         job = workflow('cloudflare-pages-deploy.yml')['jobs']['deploy']
         self.assertEqual({'contents': 'read'}, job['permissions'])
+        self.assertEqual('${{ steps.deploy.outputs.deployment-url }}', job['outputs']['deployment_url'])
+        self.assertEqual(job['outputs']['deployment_url'], job['environment']['url'])
         self.assertFalse(any(s.get('name') in ['Build', 'Install dependencies'] for s in job['steps']))
         self.assertNotIn('inputs.environment', job['concurrency']['group'])
 
@@ -568,6 +615,72 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         for change in [dict(GITHUB_REF='refs/tags/v9.9.9'), dict(BINARY='.'), dict(BINARY='./')]:
             self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, **change)).returncode)
 
+    def test_homebrew_retries_other_formula_updates_and_preserves_conflicts(self):
+        real_git = shutil.which('git')
+        def git(*args, cwd=None):
+            return subprocess.check_output([real_git, *args], cwd=cwd, text=True, stderr=subprocess.STDOUT)
+        for conflict in [False, True]:
+            with self.subTest(conflict=conflict):
+                remote = self.root / f'tap-{conflict}.git'
+                git('init', '--bare', '-q', str(remote))
+                git('--git-dir', str(remote), 'symbolic-ref', 'HEAD', 'refs/heads/main')
+                self.project = self.root / f'writer-{conflict}'
+                self.project.mkdir()
+                git('init', '-q', '-b', 'main', cwd=self.project)
+                for key, value in [('user.name', 'Test'), ('user.email', 'test@example.test'), ('commit.gpgsign', 'false')]:
+                    git('config', key, value, cwd=self.project)
+                (self.project / 'Formula').mkdir()
+                (self.project / 'Formula/tool.rb').write_text('before\n')
+                git('add', '.', cwd=self.project)
+                git('commit', '-qm', 'initial', cwd=self.project)
+                git('remote', 'add', 'origin', str(remote), cwd=self.project)
+                git('push', '-q', 'origin', 'main', cwd=self.project)
+                git('fetch', '--depth=1', 'origin', 'main', cwd=self.project)
+                self.assertTrue((self.project / '.git/shallow').exists())
+                other = self.root / f'other-{conflict}'
+                git('clone', '-q', str(remote), str(other))
+                for key, value in [('user.name', 'Other'), ('user.email', 'other@example.test'), ('commit.gpgsign', 'false')]:
+                    git('config', key, value, cwd=other)
+                competitor_file = 'tool.rb' if conflict else 'other.rb'
+                (other / 'Formula' / competitor_file).write_text('competing update\n')
+                git('add', '.', cwd=other)
+                git('commit', '-qm', 'competing update', cwd=other)
+                (self.root / 'tool.rb').write_text('our update\n')
+                marker = self.root / f'raced-{conflict}'
+                self.stub('git', f'''import os, pathlib, subprocess, sys
+a = sys.argv[1:]
+marker = pathlib.Path({str(marker)!r})
+if 'push' in a and not marker.exists():
+    marker.touch()
+    subprocess.run([{real_git!r}, 'push', '-q', 'origin', 'main'], cwd={str(other)!r}, check=True)
+os.execv({real_git!r}, [{real_git!r}] + a)
+''')
+                result = self.run_step('homebrew-formula.yml', 'publish', FORMULA_NAME='tool', TAG='v1.0.0', PUSH_TOKEN='')
+                self.assertEqual(not conflict, result.returncode == 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+                self.assertEqual('competing update\n', git('--git-dir', str(remote), 'show', 'main:Formula/' + competitor_file))
+                if conflict:
+                    self.assertIn('conflicts with this formula', result.stdout)
+                else:
+                    self.assertEqual('our update\n', git('--git-dir', str(remote), 'show', 'main:Formula/tool.rb'))
+                (self.bin / 'git').unlink()
+
+    def test_pnpm_sync_requires_a_declared_or_explicit_version_before_setup(self):
+        package = self.project / 'package.json'
+        args = dict(PREFIX='release-please--', LOCKFILE='pnpm-lock.yaml', PNPM_VERSION='', PACKAGE_JSON=str(package))
+        for manager, explicit, valid in [('', '', False), ('npm@10', '', False), ('pnpm@10.0.0', '', True), ('', '10.0.0', True)]:
+            package.write_text(json.dumps({'packageManager': manager}))
+            result = self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', **dict(args, PNPM_VERSION=explicit))
+            self.assertEqual(valid, result.returncode == 0, result.stdout + result.stderr)
+            if not valid:
+                self.assertIn('Set pnpm-version', result.stderr)
+
+    def test_neovim_installers_fail_early_on_unprovisioned_runners(self):
+        for name, identity in [('nvim-format.yml', 'Install stylua'), ('nvim-lint.yml', 'Install luacheck'), ('nvim-tests.yml', 'Install Neovim')]:
+            result = subprocess.run(['/bin/bash', '-eo', 'pipefail', '-c', step(name, identity)['run']], cwd=self.project, env={**self.env, 'PATH': str(self.bin)}, text=True, capture_output=True)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn('Runner prerequisite missing: gh', result.stdout)
+
     def test_homebrew_optional_credentials_skip_before_asset_download(self):
         queue = workflow('homebrew-formula.yml')['jobs']['update-formula']['concurrency']
         self.assertEqual('max', queue['queue'])
@@ -587,7 +700,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
     def test_fork_pull_requests_never_restore_dependency_or_build_caches(self):
         for name in ['ci.yml', 'go-ci.yml', 'go-lint.yml', 'go-security.yml', 'go-goreleaser.yml']:
             for item in (item for job in workflow(name)['jobs'].values() for item in job['steps']):
-                if not item.get('name', '').startswith(('Restore dependencies', 'Restore Go module cache', 'Restore Go build cache')):
+                if not item.get('name', '').startswith(('Restore dependencies', 'Restore Go module cache', 'Restore Go build cache', 'Restore golangci-lint cache')):
                     continue
                 for event, source, allowed in [('push', '', True), ('pull_request', 'owner/project', True), ('pull_request', 'fork/project', False), ('pull_request_target', 'fork/project', False)]:
                     with self.subTest(workflow=name, step=item['name'], event=event, source=source):
@@ -600,7 +713,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                 for item in job['steps']:
                     if item.get('uses', '').startswith('actions/cache/save@'):
                         self.assertIn('inputs.cache && inputs.save-cache', item['if'])
-        for name, identity, setting, disabled in [('ci.yml', 'Install mise', 'cache', 'False'), ('go-lint.yml', 'lint', 'skip-cache', 'True')]:
+        for name, identity, setting, disabled in [('ci.yml', 'Install mise', 'cache', 'False')]:
             self.assertEqual(disabled, expression(step(name, identity)['with'][setting], event='pull_request', source='fork/project', cache=True))
             self.assertEqual(disabled, expression(step(name, identity)['with'][setting], cache=False))
 
@@ -615,6 +728,9 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertEqual(auto_apply, explicit_apply)
         self.assertEqual(pr_test, explicit_test)
         self.assertNotEqual(auto_apply, pr_test)
+        self.assertNotEqual(pr_test, expression(acl, event='pull_request', action='', tailnet='example', run_id=2))
+        self.assertEqual(auto_apply, expression(acl, action='apply', tailnet='example', run_id=2))
+        self.assertEqual('max', workflow('tailscale-acl.yml')['jobs']['acl']['concurrency']['queue'])
         environment = workflow('tailscale-acl.yml')['jobs']['acl']['environment']
         for event, ref, action, protected in [('push', 'refs/heads/main', '', 'production'), ('workflow_dispatch', 'refs/heads/main', 'apply', 'production'), ('pull_request', 'refs/pull/1/merge', '', ''), ('push', 'refs/heads/main', 'test', '')]:
             self.assertEqual(protected, expression(environment, event=event, ref=ref, action=action, environment='production'))
@@ -706,6 +822,34 @@ class Policy(unittest.TestCase):
         self.checks = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.checks)
 
+    def test_checkout_credential_policy_matches_case_insensitive_action_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for action in ['actions/checkout', 'Actions/Checkout', 'ACTIONS/CHECKOUT']:
+                for persist in [None, True, False]:
+                    document = {'on': 'push', 'jobs': {'run': {'runs-on': 'ubuntu-latest', 'timeout-minutes': 5, 'permissions': {'contents': 'read'}, 'steps': [{'uses': action + '@' + 'a' * 40}]}}}
+                    if persist is not None:
+                        document['jobs']['run']['steps'][0]['with'] = {'persist-credentials': persist}
+                    (root / 'test.yml').write_text(yaml.safe_dump(document))
+                    self.assertEqual(persist is False, not self.checks.validate(root), (action, persist))
+
+    def test_generated_reference_covers_both_workflow_extensions(self):
+        spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')
+        reference = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reference)
+        with tempfile.TemporaryDirectory() as directory:
+            reference.ROOT = Path(directory)
+            workflows = reference.ROOT / '.github/workflows'
+            workflows.mkdir(parents=True)
+            for extension in ['yml', 'yaml']:
+                (workflows / ('fixture.' + extension)).write_text('name: Fixture\n"on": {workflow_call: {inputs: {sample: {type: string, description: Original}}}}\njobs: {}\n')
+            first = reference.render()
+            for extension in ['yml', 'yaml']:
+                self.assertIn('## fixture.' + extension, first)
+            path = workflows / 'fixture.yaml'
+            path.write_text(path.read_text().replace('Original', 'Changed'))
+            self.assertNotEqual(first, reference.render())
+
     def test_policy_rejects_empty_duplicate_yaml_and_unpinned_job_or_docker_uses(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -786,10 +930,14 @@ class Policy(unittest.TestCase):
             for where in ['workflow', 'job']:
                 for queue, cancel, accepted in [('max', False, True), ('single', True, True), ('max', True, False), ('invalid', False, False)]:
                     document = yaml.safe_load(source)
+                    document['on'] = document.pop(True)
                     target = document if where == 'workflow' else document['jobs']['first']
                     target['concurrency'] = {'group': 'fixture', 'queue': queue, 'cancel-in-progress': cancel}
                     path.write_text(yaml.safe_dump(document))
                     self.assertEqual(accepted, not self.checks.validate(root), (where, queue, cancel))
+                    if accepted:
+                        result = subprocess.run(['actionlint', '-ignore', self.checks.QUEUE_COMPAT, str(path)], capture_output=True, text=True)
+                        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == '__main__':

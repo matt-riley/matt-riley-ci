@@ -21,7 +21,7 @@ name: Tailscale ACL
         default: policy.hujson
         type: string
       action:
-        description: '''test'', ''apply'', or '''' to test on pull requests and apply on pushes to the default branch'
+        description: Test/apply; empty tests except default-branch pushes. Explicit apply requires default-branch push or workflow_dispatch.
         required: false
         default: ''
         type: string
@@ -83,7 +83,7 @@ jobs:
         esac
 
         if [ "$resolved" = apply ] && { { [ "$EVENT_NAME" != push ] && [ "$EVENT_NAME" != workflow_dispatch ]; } || [ "$REF" != "refs/heads/$DEFAULT_BRANCH" ]; }; then
-          echo '::error::Applying ACLs requires a trusted default-branch push or manual run'; exit 1
+          echo '::error::Applying ACLs requires push or workflow_dispatch on the default branch'; exit 1
         fi
         if [ ! -f "$POLICY_FILE" ]; then
           echo "::error title=Policy file not found::'$POLICY_FILE' does not exist in this repository. Set the policy-file input to its path." >&2
@@ -119,5 +119,6 @@ jobs:
         } >> "$GITHUB_STEP_SUMMARY"
     environment: ${{ (inputs.action == 'apply' || (inputs.action == '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && inputs.environment || '' }}
     concurrency:
-      group: tailscale-acl:${{ github.repository }}:${{ inputs.tailnet }}:${{ (inputs.action == 'apply' || (inputs.action == '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && 'apply' || 'test' }}
+      group: tailscale-acl:${{ github.repository }}:${{ inputs.tailnet }}:${{ (inputs.action == 'apply' || (inputs.action == '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && 'apply' || format('test:{0}:{1}', github.run_id, github.run_attempt) }}
+      queue: max
       cancel-in-progress: false

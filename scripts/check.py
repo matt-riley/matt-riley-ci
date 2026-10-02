@@ -125,7 +125,7 @@ def validate(directory):
                 for step in job.get('steps', []):
                     if 'uses' in step:
                         uses.append(step['uses'])
-                    if step.get('uses', '').startswith('actions/checkout@') and step.get('with', {}).get('persist-credentials') is not False:
+                    if step.get('uses', '').casefold().startswith('actions/checkout@') and step.get('with', {}).get('persist-credentials') is not False:
                         raise ValueError(job_name + ': checkout must not persist credentials')
                     if 'run' in step and '${{' in step['run']:
                         raise ValueError(job_name + ': pass expressions through env, not run source')

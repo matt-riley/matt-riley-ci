@@ -74,9 +74,9 @@ For a monorepo, set `working-directory: packages/server`. Artifact and diagnosti
 | `cloudflare-pages-deploy.yml` | Deploy an existing same-run site artifact | Linux; Node used only to run Wrangler |
 | `go-goreleaser.yml` | Snapshot validation or tagged release, optional tap token | Linux/macOS supported by GoReleaser |
 | `homebrew-formula.yml` | Generate, syntax-check and push a tap formula from release assets | Linux with gh, Python and Ruby |
-| `nvim-format.yml` | Pinned StyLua | Linux/macOS x64/arm64 |
-| `nvim-lint.yml` | Pinned standalone luacheck, no apt setup | Linux x64; use Universal CI for other platforms |
-| `nvim-tests.yml` | Exact Neovim release and pinned mini.test | Linux/macOS x64/arm64 |
+| `nvim-format.yml` | Pinned StyLua | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |
+| `nvim-lint.yml` | Pinned standalone luacheck, no apt setup | Linux x64 with gh and Python 3; use Universal CI for other platforms |
+| `nvim-tests.yml` | Exact Neovim release and pinned mini.test | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |
 | `pnpm-lockfile-sync.yml` | Refresh only a same-repository release PR lockfile | Linux with pnpm/Node |
 | `release-please.yml` | Release PRs and tagged releases; generic monorepo outputs | Linux with release-please |
 | `request-app-deploy.yml` | Request exact source/artifact deployment from matt-riley/infra | Linux; project-specific target |
@@ -127,8 +127,10 @@ The repository release PR and major-tag publisher both use the `release` environ
 
 Set branch protection to require the final **checks** job. The repository release workflow uses `RELEASE_TAG_TOKEN` for floating tag updates: a PAT/App token with contents write and **workflows: write** access. That latter scope is not a valid workflow `permissions:` key. An ordinary GITHUB_TOKEN may be rejected when moving refs containing workflow files. Use the default GITHUB_TOKEN for release-please when subsequent automatic release-PR CI is not needed; use an explicit App/PAT token when downstream event-triggered checks must run (GitHub suppresses most workflows caused by GITHUB_TOKEN).
 
-If a release exists but major-tag publication failed, manually run Repository Release Please **on that exact release tag**, with `release-tag` set to it. The full suite revalidates that SHA, and the publisher verifies the remote tag target after a guarded push. A different branch revision cannot bless an untested tag. Concurrent releases are serialized and stale tag updates use force-with-lease. Most writer workflows use GitHub's default concurrency, which allows one running and one pending run, so intermediate pending runs may be replaced. Docker and Homebrew publication use queue:max to retain up to 100 pending jobs; additional jobs are cancelled when that bounded queue is full. Neither mode guarantees an unlimited lossless queue. Tailscale tests and applies use separate groups so a PR test cannot replace a queued apply.
+If a release exists but major-tag publication failed, manually run Repository Release Please **on that exact release tag**, with `release-tag` set to it. The full suite revalidates that SHA, and the publisher verifies the remote tag target after a guarded push. A different branch revision cannot bless an untested tag. Concurrent releases are serialized and stale tag updates use force-with-lease. Most writer workflows use GitHub's default concurrency, which allows one running and one pending run, so intermediate pending runs may be replaced. Docker and Homebrew publication use queue:max to retain up to 100 pending jobs; additional jobs are cancelled when that bounded queue is full. Neither mode guarantees an unlimited lossless queue. Tailscale tests use groups scoped to their run/attempt; applies serialize by tailnet with queue:max.
 
 The monthly documentation audit and its gh-aw bootstrap were removed. Documentation contract checks run with regular CI.
 
 The check entrypoint validates concurrency queue values and rejects max queues with cancellation, then narrowly suppresses actionlint 1.7.12's unknown-queue-key diagnostic. Other actionlint errors remain fatal. The hosted matrix fixture checks three jobs complete under the same max queue.
+
+GitHub concurrency groups are scoped to the caller repository. Docker image publication should have one authoritative publisher repository per image; two repositories cannot coordinate through a matching group string. Homebrew tap publishing retries up to three ordinary pushes, rebasing nonconflicting concurrent changes; same-formula conflicts stop for review without overwriting another publication. Self-hosted Neovim runners must provision gh, Python 3 and the relevant archive tools (unzip for StyLua, tar for Neovim), plus Git for mini.nvim; installers check these prerequisites before downloading assets.

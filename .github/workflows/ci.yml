@@ -270,9 +270,10 @@ jobs:
         dependency_paths = [p for p in dict.fromkeys(dependency_paths) if p]
         scope = hashlib.sha256(str(pathlib.Path.cwd().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())).encode()).hexdigest()[:16]
         tools = hashlib.sha256('\n'.join(versions).encode()).hexdigest()[:16]
+        path_set = hashlib.sha256(json.dumps(sorted(dependency_paths)).encode()).hexdigest()[:16]
         with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
             out.write('paths<<CACHE_PATHS\n' + '\n'.join(dependency_paths) + '\nCACHE_PATHS\n')
-            out.write(f'build_cache={build_cache}\nscope={scope}\ntools={tools}\n')
+            out.write(f'build_cache={build_cache}\nscope={scope}\ntools={tools}\npath_set={path_set}\n')
         PY
       shell: bash
     - name: Restore dependencies
@@ -281,11 +282,11 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.cache-metadata.outputs.paths }}
-        key: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.tools
+        key: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{ steps.cache-metadata.outputs.tools
           }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory), format('{0}/**/go.sum', inputs.working-directory),
           format('{0}/**/*lock*', inputs.working-directory), format('{0}/mise.toml', inputs.working-directory),
           format('{0}/.tool-versions', inputs.working-directory), inputs.cache-dependency-path) }}
-        restore-keys: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{
+        restore-keys: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{
           steps.cache-metadata.outputs.tools }}-
     - name: Restore Go build cache
       id: go-build-cache
