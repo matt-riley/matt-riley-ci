@@ -233,4 +233,4 @@ jobs:
       group: homebrew:${{ inputs.tap-repo }}
       cancel-in-progress: false
     outputs:
-      status: ${{ steps.publish.outputs.status || steps.auth.outputs.status || 'failed' }}
+      status: ${{ steps.publish.outputs.status || (steps.auth.outputs.status == 'skipped' && 'skipped') || 'failed' }}

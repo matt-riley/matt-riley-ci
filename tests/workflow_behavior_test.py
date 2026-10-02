@@ -23,7 +23,7 @@ def step(name, identity):
     return next(s for job in workflow(name)['jobs'].values() for s in job.get('steps', []) if s.get('id', s.get('name')) == identity)
 
 
-def expression(value, event='push', ref='refs/heads/main', source='owner/project', **inputs):
+def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, **inputs):
     """Evaluate the simple boolean/string GitHub expressions used by these guards."""
     github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref,
         event=SimpleNamespace(repository=SimpleNamespace(default_branch='main'),
@@ -33,7 +33,7 @@ def expression(value, event='push', ref='refs/heads/main', source='owner/project
         code = re.sub(r'!(?!=)', 'not ', code)
         code = re.sub(r'\binputs\.([A-Za-z0-9_-]+)', lambda item: "inputs[" + repr(item.group(1)) + "]", code)
         code = code.replace('steps.cache-metadata', 'steps.cache_metadata')
-        steps = SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
+        steps = steps_context or SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
         return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'format': lambda text, *args: text.format(*args)}))
     return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', evaluate, value)
 
@@ -505,6 +505,10 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertLess(ids.index('auth'), ids.index('formula'))
         self.assertEqual("${{ steps.auth.outputs.status == 'ready' }}", step('homebrew-formula.yml', 'formula')['if'])
         self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'auth', HAS_TOKEN='false', REQUIRED='true').returncode)
+        output = workflow('homebrew-formula.yml')['jobs']['update-formula']['outputs']['status']
+        for auth, published, expected in [('skipped', '', 'skipped'), ('ready', '', 'failed'), ('', '', 'failed'), ('ready', 'published', 'published'), ('ready', 'unchanged', 'unchanged')]:
+            context = SimpleNamespace(auth=SimpleNamespace(outputs=SimpleNamespace(status=auth)), publish=SimpleNamespace(outputs=SimpleNamespace(status=published)))
+            self.assertEqual(expected, expression(output, steps_context=context))
 
     def test_fork_pull_requests_never_restore_dependency_or_build_caches(self):
         for name in ['ci.yml', 'go-ci.yml', 'go-lint.yml', 'go-security.yml', 'go-goreleaser.yml']:

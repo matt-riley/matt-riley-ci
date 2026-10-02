@@ -117,3 +117,5 @@ A subsequent incomplete Faultline pass on `3fab374` exposed another 17 findings.
 | 17: Artifact paths can select the entire checkout | Valid configuration hazard. Reject the repository root across Universal/Go/Aube resolvers while retaining child directories and globs; tests run the root-directory case explicitly. |
 
 The next incomplete status on `ef9acb1` exposed four findings: an explicit Aube lockfile could select `package.json` (valid; require a supported basename and cover a tracked package.json negative case), tracked lockfile symlinks (already fixed), and two repeat claims that Universal ignores its job-level working directory (incorrect). Every visible finding in these snapshots has an explicit disposition; incomplete and omitted review output remains a verification limit.
+
+The final output-contract check also found that a failed Homebrew generation/publication could expose the internal auth state `ready` as the public result. Restrict the auth fallback to `skipped`; other missing publication outcomes report `failed`. Expression regressions cover ready/empty/skipped and published/unchanged outcomes.
