@@ -121,5 +121,5 @@ jobs:
     outputs:
       deployment_url: ${{ steps.deploy.outputs.deployment-url }}
     concurrency:
-      group: cloudflare-pages:${{ github.repository }}:${{ inputs.project-name }}:${{ inputs.environment }}
+      group: cloudflare-pages:${{ github.repository }}:${{ inputs.project-name }}
       cancel-in-progress: false

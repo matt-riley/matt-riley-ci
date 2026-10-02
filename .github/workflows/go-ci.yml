@@ -121,6 +121,7 @@ jobs:
                     negative = line.startswith('!')
                     path = (cwd / (line[1:] if negative else line)).resolve()
                     path.relative_to(root)
+                    if path == root: raise SystemExit('Artifact paths must select a child of the repository')
                     paths.append(('!' if negative else '') + str(path))
                 delimiter = 'PATHS_' + uuid.uuid4().hex
                 out.write(name + '<<' + delimiter + '\n' + '\n'.join(paths) + '\n' + delimiter + '\n')
@@ -133,7 +134,7 @@ jobs:
         RUN_VET: ${{ inputs.run-vet }}
         RUN_FMT: ${{ inputs.run-fmt }}
       run: |
-        if [ -z "$BUILD_COMMAND" ] && [ "$RUN_TEST" != true ] && [ "$RUN_VET" != true ] && [ "$RUN_FMT" != true ]; then
+        if [ -z "${BUILD_COMMAND//[[:space:]]/}" ] && [ "$RUN_TEST" != true ] && [ "$RUN_VET" != true ] && [ "$RUN_FMT" != true ]; then
           echo '::error::Enable at least one build/test/vet/format check'; exit 1
         fi
     - name: Set up Go
@@ -207,6 +208,7 @@ jobs:
         RUN_RACE: ${{ inputs.run-race }}
       run: |
         if [ -n "$TEST_COMMAND" ]; then
+          [ -n "${TEST_COMMAND//[[:space:]]/}" ] || { echo '::error::test-command cannot contain only whitespace'; exit 1; }
           bash --noprofile --norc -eo pipefail -c "$TEST_COMMAND"
           exit 0
         fi

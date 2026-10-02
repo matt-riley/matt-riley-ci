@@ -23,7 +23,7 @@ Aube CI.
 | build-env | string | False |  | Build step environment variables as multiline KEY=VALUE |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | coverage-path | string | False |  | Optional coverage output paths relative to working-directory |
-| coverage-artifact-name | string | False | aube-coverage | Unique coverage artifact name |
+| coverage-artifact-name | string | False |  | Required unique artifact name when coverage-path is supplied |
 | artifact-retention-days | number | False | 7 | Artifact retention in days |
 
 ### Secrets

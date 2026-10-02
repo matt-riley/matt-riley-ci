@@ -55,7 +55,7 @@ class Scripts(unittest.TestCase):
         path.chmod(0o755)
 
     def run_step(self, name, identity, **env):
-        return subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', step(name, identity)['run']], cwd=self.project, env=dict(self.env, **env), text=True, capture_output=True, timeout=45)
+        return subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', step(name, identity)['run']], cwd=self.project, env={**self.env, 'COVERAGE_NAME': 'test-coverage', **env}, text=True, capture_output=True, timeout=45)
 
     def okay(self, result):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -113,6 +113,11 @@ run = "test -f count"
             self.assertIn(str(self.project / suffix), output)
         self.assertNotEqual(0, self.run_step('ci.yml', 'paths', BUILD_PATHS='../../outside', FAILURE_PATHS='').returncode)
 
+    def test_artifact_retention_respects_the_actual_repository_cap(self):
+        for retention, limit, okay in [('7', '14', True), ('15', '14', False), ('100', '90', False), ('100', '400', True), ('0', '90', False)]:
+            result = self.run_step('ci.yml', 'Validate CI inputs', ARTIFACT_PATH='', ARTIFACT_NAME='', RETENTION=retention, GITHUB_RETENTION_DAYS=limit)
+            self.assertEqual(okay, result.returncode == 0, result.stdout + result.stderr)
+
     def test_adapter_artifact_paths_apply_nested_directory_to_every_line(self):
         for name in ['go-ci.yml', 'aube-ci.yml']:
             Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
@@ -121,6 +126,17 @@ run = "test -f count"
             for path in ['coverage.out', 'reports/*.xml', 'reports/private', 'logs', 'errors']:
                 self.assertIn(str(self.project / path), output)
             self.assertNotEqual(0, self.run_step(name, 'paths', COVERAGE_PATHS='../../outside', FAILURE_PATHS='').returncode)
+        self.project = self.root
+        for name, variables in [('go-ci.yml', dict(COVERAGE_PATHS='.', FAILURE_PATHS='')), ('aube-ci.yml', dict(COVERAGE_PATHS='.', FAILURE_PATHS='')), ('ci.yml', dict(BUILD_PATHS='.', FAILURE_PATHS=''))]:
+            self.assertNotEqual(0, self.run_step(name, 'paths', **variables).returncode)
+
+    def test_yarn_cache_metadata_registers_classic_and_modern_stores(self):
+        (self.project / 'yarn.lock').write_text('')
+        for modern in [True, False]:
+            self.stub('yarn', "import sys\na=sys.argv[1:]\nprint('4.0.0' if a == ['--version'] else " + repr('/tmp/modern-yarn' if modern else 'undefined') + " if a == ['config', 'get', 'cacheFolder'] else '/tmp/classic-yarn')\n")
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            self.okay(self.run_step('ci.yml', 'cache-metadata', EXTRA_PATHS='', PLAYWRIGHT_CACHE='false'))
+            self.assertIn('/tmp/modern-yarn' if modern else '/tmp/classic-yarn', Path(self.env['GITHUB_OUTPUT']).read_text())
 
     def test_cache_metadata_uses_project_and_runtime_and_browser_opt_in(self):
         (self.project / 'package-lock.json').write_text('{}')
@@ -317,11 +333,59 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **args).returncode)
         subprocess.run(['git', 'add', 'package-lock.json'], cwd=self.project, check=True)
         self.okay(self.run_step('aube-ci.yml', 'lockfile', **args))
+        for lockfile in [str(self.project / 'package-lock.json'), '../package-lock.json']:
+            self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, LOCKFILE_PATH=lockfile)).returncode)
+        link = self.project / 'linked-lock.json'
+        link.symlink_to(self.project / 'package-lock.json')
+        subprocess.run(['git', 'add', 'linked-lock.json'], cwd=self.project, check=True)
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, LOCKFILE_PATH='linked-lock.json')).returncode)
         (self.project / 'yarn.lock').write_text('')
         self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **args).returncode)
         (self.project / 'yarn.lock').unlink()
         (self.project / 'package.json').write_text('{"scripts":{"--help":"echo skipped"}}')
         self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, TEST_SCRIPT='--help')).returncode)
+
+    def test_aube_lockfile_check_detects_committed_or_index_hidden_changes(self):
+        import hashlib
+        lockfile = self.project / 'package-lock.json'
+        lockfile.write_text('{}')
+        def git(*args):
+            return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgsign=false', *args], cwd=self.project, check=True, capture_output=True)
+        git('init', '-q')
+        git('add', 'package-lock.json')
+        git('commit', '-qm', 'baseline')
+        args = dict(LOCKFILE='package-lock.json', EXPECTED_SHA256=hashlib.sha256(b'{}').hexdigest())
+        self.okay(self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', **args))
+        lockfile.write_text('{"changed":true}')
+        git('add', 'package-lock.json')
+        git('commit', '-qm', 'installation changed HEAD')
+        self.assertEqual(b'', git('status', '--porcelain').stdout)
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', **args).returncode)
+        for flag in ['--assume-unchanged', '--skip-worktree']:
+            git('update-index', flag, 'package-lock.json')
+            lockfile.write_text('{"hidden":true}')
+            self.assertEqual(b'', git('status', '--porcelain').stdout)
+            self.assertNotEqual(0, self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', **args).returncode)
+        lockfile.unlink()
+        target = self.project / 'outside-lock.json'
+        target.write_text('{}')
+        lockfile.symlink_to(target)
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', **args).returncode)
+
+    def test_aube_coverage_requires_unique_name_and_can_upload_build_output(self):
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'paths', COVERAGE_PATHS='coverage.out', FAILURE_PATHS='', COVERAGE_NAME='').returncode)
+        self.okay(self.run_step('aube-ci.yml', 'paths', COVERAGE_PATHS='coverage.out', FAILURE_PATHS='', COVERAGE_NAME='package-a-coverage'))
+        upload = step('aube-ci.yml', 'Upload coverage')
+        self.assertIn("steps.install.outcome == 'success'", upload['if'])
+        self.assertNotIn('steps.test.outcome', upload['if'])
+        self.assertEqual('', workflow('aube-ci.yml')['on']['workflow_call']['inputs']['coverage-artifact-name']['default'])
+
+    def test_go_rejects_whitespace_only_check_overrides(self):
+        args = dict(RUN_TEST='false', RUN_VET='false', RUN_FMT='false')
+        for command in ['', '   ', '\t\n']:
+            self.assertNotEqual(0, self.run_step('go-ci.yml', 'Require a Go check', BUILD_COMMAND=command, **args).returncode)
+        self.okay(self.run_step('go-ci.yml', 'Require a Go check', BUILD_COMMAND='go build ./...', **args))
+        self.assertNotEqual(0, self.run_step('go-ci.yml', 'test', TEST_COMMAND=' \t\n', TEST_ARGS='', RUN_RACE='false').returncode)
 
     def test_aube_build_env_cannot_change_workflow_control(self):
         self.stub('aube', 'import os\nprint(os.environ.get("URL"))\n')
@@ -411,6 +475,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         job = workflow('cloudflare-pages-deploy.yml')['jobs']['deploy']
         self.assertEqual({'contents': 'read'}, job['permissions'])
         self.assertFalse(any(s.get('name') in ['Build', 'Install dependencies'] for s in job['steps']))
+        self.assertNotIn('inputs.environment', job['concurrency']['group'])
 
     def test_homebrew_quotes_ruby_and_accepts_one_platform(self):
         self.stub('gh', "import pathlib, sys\na=sys.argv\npathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'asset')\n")

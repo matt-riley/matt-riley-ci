@@ -172,6 +172,11 @@ jobs:
           echo '::error::artifact-path and artifact-name must be supplied together'; exit 1
         fi
         [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo '::error::Artifact retention must be a positive integer'; exit 1; }
+        python3 - <<'PY'
+        import os
+        if int(os.environ['RETENTION']) > int(os.environ.get('GITHUB_RETENTION_DAYS', '90')):
+            raise SystemExit('Artifact retention exceeds the repository limit')
+        PY
       shell: bash
     - name: Resolve artifact paths
       id: paths
@@ -191,6 +196,7 @@ jobs:
                     negative = line.startswith('!')
                     path = (cwd / (line[1:] if negative else line)).resolve()
                     path.relative_to(root)
+                    if path == root: raise SystemExit('Artifact paths must select a child of the repository')
                     paths.append(('!' if negative else '') + str(path))
                 delimiter = 'PATHS_' + uuid.uuid4().hex
                 out.write(name + '<<' + delimiter + '\n' + '\n'.join(paths) + '\n' + delimiter + '\n')

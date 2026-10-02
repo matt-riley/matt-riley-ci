@@ -78,10 +78,10 @@ name: Aube CI
         required: false
         default: ''
       coverage-artifact-name:
-        description: Unique coverage artifact name
+        description: Required unique artifact name when coverage-path is supplied
         type: string
         required: false
-        default: aube-coverage
+        default: ''
       artifact-retention-days:
         description: Artifact retention in days
         type: number
@@ -107,12 +107,14 @@ jobs:
       id: paths
       env:
         COVERAGE_PATHS: ${{ inputs.coverage-path }}
+        COVERAGE_NAME: ${{ inputs.coverage-artifact-name }}
         FAILURE_PATHS: ''
       run: |
         python3 - <<'PY'
         import os, pathlib, uuid
         root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
         cwd = pathlib.Path.cwd().resolve()
+        if os.environ['COVERAGE_PATHS'] and not os.environ['COVERAGE_NAME'].strip(): raise SystemExit('Set a unique coverage-artifact-name with coverage-path')
         with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
             for name, variable in [('coverage', 'COVERAGE_PATHS'), ('failure', 'FAILURE_PATHS')]:
                 paths = []
@@ -121,6 +123,7 @@ jobs:
                     negative = line.startswith('!')
                     path = (cwd / (line[1:] if negative else line)).resolve()
                     path.relative_to(root)
+                    if path == root: raise SystemExit('Artifact paths must select a child of the repository')
                     paths.append(('!' if negative else '') + str(path))
                 delimiter = 'PATHS_' + uuid.uuid4().hex
                 out.write(name + '<<' + delimiter + '\n' + '\n'.join(paths) + '\n' + delimiter + '\n')
@@ -138,7 +141,7 @@ jobs:
         TEST_SCRIPT: ${{ inputs.test-script }}
       run: |
         python3 - <<'PY'
-        import json, os, pathlib, subprocess
+        import hashlib, json, os, pathlib, subprocess
         package = json.loads(pathlib.Path('package.json').read_text())
         scripts = package.get('scripts', {})
         requested = [script for flag, script in [('RUN_LINT', 'lint'), ('RUN_BUILD', 'build'), ('RUN_TEST', os.environ['TEST_SCRIPT'])] if os.environ[flag] == 'true']
@@ -149,12 +152,19 @@ jobs:
         files = [explicit] if explicit else [p for p in ['aube-lock.yaml', 'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'] if pathlib.Path(p).is_file()]
         if len(files) > 1: raise SystemExit('Multiple lockfiles; specify lockfile-path')
         lockfile = files[0] if files else ''
+        digest = ''
+        if lockfile:
+            path = pathlib.Path(lockfile)
+            root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
+            if path.is_absolute() or '..' in path.parts or '\n' in lockfile or '\r' in lockfile: raise SystemExit('Invalid lockfile path')
+            path.resolve().relative_to(root)
+            if path.is_symlink() or not path.is_file(): raise SystemExit('Lockfile must be a regular nonsymlink file inside the repository')
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if os.environ['REQUIRE_LOCKFILE'] == 'true' or os.environ['VERIFY_LOCKFILE'] == 'true':
             if not lockfile or not pathlib.Path(lockfile).is_file(): raise SystemExit('A supported lockfile is required')
             # Enforce tracked input; git diff alone misses a newly generated/untracked lockfile.
             subprocess.run(['git', 'ls-files', '--error-unmatch', '--', lockfile], check=True, stdout=subprocess.DEVNULL)
-        if '\n' in lockfile: raise SystemExit('Invalid lockfile path')
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('lockfile=' + lockfile + '\n')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('lockfile=' + lockfile + '\nsha256=' + digest + '\n')
         PY
       shell: bash
     - name: Set up Node.js
@@ -184,9 +194,15 @@ jobs:
       if: ${{ inputs.verify-lockfile-clean }}
       env:
         LOCKFILE: ${{ steps.lockfile.outputs.lockfile }}
+        EXPECTED_SHA256: ${{ steps.lockfile.outputs.sha256 }}
       run: |
-        test -f "$LOCKFILE"
-        test -z "$(git status --porcelain --untracked-files=all -- "$LOCKFILE")" || { echo '::error::Lockfile changed during installation'; exit 1; }
+        python3 - <<'PY'
+        import hashlib, os, pathlib
+        path = pathlib.Path(os.environ['LOCKFILE'])
+        path.resolve().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())
+        if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != os.environ['EXPECTED_SHA256']:
+            raise SystemExit('Lockfile changed during installation')
+        PY
       shell: bash
     - name: Lint
       id: lint
@@ -224,8 +240,7 @@ jobs:
         aube run "$SCRIPT_NAME"
       shell: bash
     - name: Upload coverage
-      if: ${{ always() && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') && inputs.coverage-path
-        != '' }}
+      if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.coverage-path != '' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: ${{ inputs.coverage-artifact-name }}

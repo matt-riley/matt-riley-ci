@@ -39,7 +39,7 @@ The library now avoids repeated task dependencies, unnecessary tools/emulation, 
 
 ## What remains outside this implementation
 
-The checked-in suite verifies Linux x64 consumers and 52 executable contracts, including real mise graphs, Ruby syntax and local Git publication. Seven additional real Neovim exit-status cases run in hosted validation and were also exercised locally with the pinned macOS ARM64 release. Hosted checks exercise Go test/lint/security, GoReleaser snapshots, Aube, Node/Bun/language-neutral mise tasks, Docker validation, Neovim tools/tests, the no-credential Homebrew skip and artifact handoff.
+The checked-in suite verifies Linux x64 consumers and 57 executable contracts, including real mise graphs, Ruby syntax and local Git publication. Seven additional real Neovim exit-status cases run in hosted validation and were also exercised locally with the pinned macOS ARM64 release. Hosted checks exercise Go test/lint/security, GoReleaser snapshots, Aube, Node/Bun/language-neutral mise tasks, Docker validation, Neovim tools/tests, the no-credential Homebrew skip and artifact handoff.
 
 Production Cloudflare/GHCR/tap/release/dispatch/Tailscale operations are not exercised using live write credentials. Operators must configure environments, App permissions, registry/service access, branch protection and receiving infrastructure policy. The receiver must verify source and artifact provenance; dispatch acceptance does not prove deployment completion. macOS/ARM execution and self-hosted provisioning also need real consumer validation before relying on them.
 
@@ -97,3 +97,21 @@ Faultline subsequently exposed 35 findings against the earlier `91ebbb9` revisio
 | 35: Pinned mini.nvim remote is invalid | Incorrect: `nvim-mini/mini.nvim` is the current canonical remote. Fresh pinned-commit fetches and all seven real Neovim cases succeeded locally and in hosted validation. |
 
 The three open Copilot threads were also assessed: the Homebrew and lockfile-path findings are fixed; the release caller's environment is correctly nested under `with` and remains in place. Full local validation covers the late changes, including cache-disabled/fork/same-repository event cases, queue equivalence, malformed image paths and early optional-token handling.
+
+A subsequent incomplete Faultline pass on `3fab374` exposed another 17 findings. These were assessed independently too:
+
+| Findings in that pass | Assessment and action |
+| --- | --- |
+| 1: Aube lockfile can escape the checkout or be a symlink | Valid. Require a regular nonsymlink file under the repository; reject absolute and parent-component paths. Executable checks cover tracked links and escaping inputs. |
+| 2, 3: Default Aube coverage artifact name collides | Valid for multiple calls. Remove the implicit name and require a unique explicit name when coverage is requested, matching Go's explicit naming contract; migration/examples explain matrix naming. |
+| 4: Aube installation can change HEAD/index and hide lockfile modifications | Valid. Compare actual lockfile bytes against the pre-install digest instead of mutable Git status. Real Git tests reproduce a clean status after a changed-file commit and with index hiding flags; all fail the new check. |
+| 5: Aube build-only coverage is omitted | Valid. Upload configured coverage after successful installation, including when tests are disabled or a later check fails; cancelled jobs do not upload. Missing configured output remains an error. |
+| 6, 7, 8, 9: Universal monorepo paths/tool discovery use checkout root | Incorrect repeats: job-level run defaults apply. Preserve nested-directory execution already exercised in consumer/path tests. |
+| 10: Artifact retention always caps at 90 days | The universal 90-day claim is wrong: private repositories can have a higher cap. Improve early validation against the actual `GITHUB_RETENTION_DAYS` repository cap; tests allow 100 within 400 and reject it within 90. [GitHub documents repository-specific retention](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository). |
+| 11: Yarn cache path is never registered | Incorrect: `dependency_paths.append(yarn_cache)` is already present. Added executable classic/modern Yarn store checks to prove both branches. |
+| 12: Different Pages environment inputs bypass project serialization | Valid. Lock by repository/project, independently of environment; this conservatively serializes all branches of that project. |
+| 13: MiniTest failure exits successfully | Incorrect for the pinned explicit stdout reporter. Seven real process-level cases prove failure propagation and termination, including assertion/runtime failures and consumer reporter overrides. |
+| 14: mini.nvim remote does not exist | Incorrect repeat; exact remote/commit fetch succeeds in hosted and local validation. |
+| 15: Snapshot caller write allowance is unnecessary | Incorrect as a removable caller permission: nested publish definitions require it during GitHub validation; the running snapshot job has read-only permissions. Contributors with permission to edit trusted repository workflows can also edit token grants themselves; this is not a privilege newly conferred by the skipped publish definition. |
+| 16: Whitespace build override can replace all Go checks | Valid. Whitespace does not count as a configured build; also reject whitespace-only test overrides. Executable negative cases cover spaces/tabs/newlines. |
+| 17: Artifact paths can select the entire checkout | Valid configuration hazard. Reject the repository root across Universal/Go/Aube resolvers while retaining child directories and globs; tests run the root-directory case explicitly. |

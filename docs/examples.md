@@ -66,7 +66,7 @@ jobs:
 
 ## aube-ci.yml
 
-Commit package.json with a test script and one supported lockfile. Enable lint/build only when those scripts exist.
+Commit package.json with a test script and one supported regular lockfile. Enable lint/build only when those scripts exist. To upload coverage, pass `coverage-path` and a unique `coverage-artifact-name` for each call/matrix entry; build-generated coverage is supported when tests are disabled.
 
 ```yaml
 name: Aube CI
