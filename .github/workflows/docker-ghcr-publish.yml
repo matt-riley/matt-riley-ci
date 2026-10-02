@@ -254,4 +254,5 @@ jobs:
     if: ${{ inputs.push }}
     concurrency:
       group: docker-publish:${{ github.repository }}:${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/{0}', github.repository) }}
+      queue: max
       cancel-in-progress: false

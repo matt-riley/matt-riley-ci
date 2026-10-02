@@ -13,6 +13,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#supported-keywords-for-jobs-that-call-a-reusable-workflow
 # cache-mode is explicitly supported by the current caller schema.
 CALL_JOB_KEYS = {'name', 'uses', 'with', 'secrets', 'strategy', 'needs', 'if', 'concurrency', 'permissions', 'cache-mode'}
+# actionlint 1.7.12 predates GitHub's queue property. Only suppress its unknown-key
+# diagnostic; validate literal queue values and max/cancellation semantics ourselves.
+QUEUE_COMPAT = r'^unexpected key "queue" for "concurrency" section\.'
+
+
+def validate_queue(value):
+    if not isinstance(value, dict) or 'queue' not in value:
+        return
+    if value['queue'] not in ('single', 'max'):
+        raise ValueError('Concurrency queue must be single or max')
+    if value['queue'] == 'max' and value.get('cancel-in-progress', False) is not False:
+        raise ValueError('queue:max requires cancel-in-progress to be false or omitted')
 
 
 class WorkflowLoader(yaml.SafeLoader):
@@ -68,12 +80,14 @@ def validate(directory):
             triggers = workflow.get('on', workflow.get(True))
             if not triggers:
                 raise ValueError('Workflow must declare triggers')
+            validate_queue(workflow.get('concurrency'))
             call = triggers.get('workflow_call') if isinstance(triggers, dict) else None
             if call is not None:
                 for name, spec in call.get('inputs', {}).items():
                     if spec.get('type') not in {'string', 'boolean', 'number'}:
                         raise ValueError('Invalid type for input ' + name)
             for job_name, job in workflow['jobs'].items():
+                validate_queue(job.get('concurrency'))
                 if 'uses' not in job and ('timeout-minutes' not in job or not (job.get('permissions') or workflow.get('permissions'))):
                     raise ValueError(job_name + ': explicit timeout and permissions required')
                 use = job.get('uses', '')
@@ -134,7 +148,7 @@ def main():
     if errors:
         raise SystemExit('\n'.join(errors))
     commands = [
-        ['actionlint'],
+        ['actionlint', '-ignore', QUEUE_COMPAT],
         ['zizmor', '--offline', '.github/workflows'],
         [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', '*_test.py'],
         [sys.executable, '-B', 'scripts/reference.py', '--check'],

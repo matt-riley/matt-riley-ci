@@ -368,8 +368,12 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         git('init', '-q')
         git('add', 'package-lock.json')
         git('commit', '-qm', 'baseline')
-        args = dict(LOCKFILE='package-lock.json', EXPECTED_SHA256=hashlib.sha256(b'{}').hexdigest())
+        args = dict(LOCKFILE='package-lock.json', EXPECTED_SHA256=hashlib.sha256(b'{}').hexdigest(), EXPECTED_EXECUTABLE='false')
         self.okay(self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', **args))
+        original_mode = lockfile.stat().st_mode
+        lockfile.chmod(original_mode | 0o100)
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', **args).returncode)
+        lockfile.chmod(original_mode)
         lockfile.write_text('{"changed":true}')
         git('add', 'package-lock.json')
         git('commit', '-qm', 'installation changed HEAD')
@@ -458,6 +462,8 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         jobs = workflow('docker-ghcr-publish.yml')['jobs']
         self.assertEqual({'contents': 'read'}, jobs['build']['permissions'])
         self.assertEqual('write', jobs['publish']['permissions']['packages'])
+        self.assertEqual('max', jobs['publish']['concurrency']['queue'])
+        self.assertFalse(jobs['publish']['concurrency']['cancel-in-progress'])
         build = step('docker-ghcr-publish.yml', 'build')['with']
         self.assertEqual("${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.provenance }}", build['provenance'])
         self.assertEqual("${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.sbom }}", build['sbom'])
@@ -692,6 +698,8 @@ class Policy(unittest.TestCase):
         runs = [step.get('run', '') for step in tests['jobs']['validate']['steps']]
         self.assertTrue(any('scripts/check.py' in run for run in runs))
         self.assertTrue(any('scripts/check_nvim.py --prepare' in run for run in runs))
+        self.assertEqual('max', tests['jobs']['queue-proof']['concurrency']['queue'])
+        self.assertEqual(3, len(tests['jobs']['queue-proof']['strategy']['matrix']['item']))
         bootstrap = step('contract-tests.yml', 'Install actionlint')
         self.assertTrue(bootstrap['uses'].startswith('jdx/mise-action@'))
         self.assertEqual('2026.9.18', str(bootstrap['with']['version']))
@@ -728,6 +736,13 @@ class Policy(unittest.TestCase):
             self.assertEqual([], self.checks.validate(root))
             path.write_text(source.replace('second: *defaults', 'second:\n    <<: *defaults'))
             self.assertTrue(any('YAML merge keys' in error for error in self.checks.validate(root)))
+            for where in ['workflow', 'job']:
+                for queue, cancel, accepted in [('max', False, True), ('single', True, True), ('max', True, False), ('invalid', False, False)]:
+                    document = yaml.safe_load(source)
+                    target = document if where == 'workflow' else document['jobs']['first']
+                    target['concurrency'] = {'group': 'fixture', 'queue': queue, 'cancel-in-progress': cancel}
+                    path.write_text(yaml.safe_dump(document))
+                    self.assertEqual(accepted, not self.checks.validate(root), (where, queue, cancel))
 
 
 if __name__ == '__main__':

@@ -129,6 +129,32 @@ jobs:
       context: fixtures/docker
       push: false
       outputs: type=docker,dest=/tmp/contract-image.tar
+  docker-multi-export:
+    uses: ./.github/workflows/docker-ghcr-publish.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
+    permissions:
+      contents: read
+      packages: write
+    with:
+      context: fixtures/docker
+      push: false
+      load: true
+      outputs: type=oci,dest=/tmp/contract-oci.tar
+  queue-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        item: [one, two, three]
+    concurrency:
+      group: contract-queue:${{ github.repository }}:${{ github.run_id }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+    - name: Keep the group occupied while sibling jobs queue
+      run: sleep 5
+      shell: bash
   nvim-format:
     uses: ./.github/workflows/nvim-format.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
@@ -189,6 +215,8 @@ jobs:
     - aube
     - docker
     - docker-export
+    - docker-multi-export
+    - queue-proof
     - nvim-format
     - nvim-lint
     - nvim-tests

@@ -141,7 +141,7 @@ jobs:
         TEST_SCRIPT: ${{ inputs.test-script }}
       run: |
         python3 - <<'PY'
-        import hashlib, json, os, pathlib, subprocess
+        import hashlib, json, os, pathlib, stat, subprocess
         package = json.loads(pathlib.Path('package.json').read_text())
         scripts = package.get('scripts', {})
         requested = [script for flag, script in [('RUN_LINT', 'lint'), ('RUN_BUILD', 'build'), ('RUN_TEST', os.environ['TEST_SCRIPT'])] if os.environ[flag] == 'true']
@@ -154,6 +154,7 @@ jobs:
         if len(files) > 1: raise SystemExit('Multiple lockfiles; specify lockfile-path')
         lockfile = files[0] if files else ''
         digest = ''
+        executable = ''
         if lockfile:
             path = pathlib.Path(lockfile)
             if path.name not in supported: raise SystemExit('Select a supported lockfile filename')
@@ -162,11 +163,12 @@ jobs:
             path.resolve().relative_to(root)
             if path.is_symlink() or not path.is_file(): raise SystemExit('Lockfile must be a regular nonsymlink file inside the repository')
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            executable = str(bool(path.stat().st_mode & stat.S_IXUSR)).lower()
         if os.environ['REQUIRE_LOCKFILE'] == 'true' or os.environ['VERIFY_LOCKFILE'] == 'true':
             if not lockfile or not pathlib.Path(lockfile).is_file(): raise SystemExit('A supported lockfile is required')
             # Enforce tracked input; git diff alone misses a newly generated/untracked lockfile.
             subprocess.run(['git', 'ls-files', '--error-unmatch', '--', lockfile], check=True, stdout=subprocess.DEVNULL)
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('lockfile=' + lockfile + '\nsha256=' + digest + '\n')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('lockfile=' + lockfile + '\nsha256=' + digest + '\nexecutable=' + executable + '\n')
         PY
       shell: bash
     - name: Set up Node.js
@@ -197,13 +199,16 @@ jobs:
       env:
         LOCKFILE: ${{ steps.lockfile.outputs.lockfile }}
         EXPECTED_SHA256: ${{ steps.lockfile.outputs.sha256 }}
+        EXPECTED_EXECUTABLE: ${{ steps.lockfile.outputs.executable }}
       run: |
         python3 - <<'PY'
-        import hashlib, os, pathlib
+        import hashlib, os, pathlib, stat
         path = pathlib.Path(os.environ['LOCKFILE'])
         path.resolve().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())
         if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != os.environ['EXPECTED_SHA256']:
             raise SystemExit('Lockfile changed during installation')
+        if str(bool(path.stat().st_mode & stat.S_IXUSR)).lower() != os.environ['EXPECTED_EXECUTABLE']:
+            raise SystemExit('Lockfile executable bit changed during installation')
         PY
       shell: bash
     - name: Lint
