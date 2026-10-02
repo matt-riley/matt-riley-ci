@@ -141,6 +141,8 @@ jobs:
       load: true
       outputs: type=oci,dest=/tmp/contract-oci.tar
   queue-proof:
+    # Empty optional environment names omit environment protection on GitHub.
+    environment: ${{ matrix.environment }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -148,6 +150,7 @@ jobs:
     strategy:
       matrix:
         item: [one, two, three]
+        environment: ['']
     concurrency:
       group: contract-queue:${{ github.repository }}:${{ github.run_id }}
       queue: max

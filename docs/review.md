@@ -39,7 +39,7 @@ The library now avoids repeated task dependencies, unnecessary tools/emulation, 
 
 ## What remains outside this implementation
 
-The checked-in suite verifies Linux x64 consumers and 59 executable contracts, including real mise graphs, Ruby syntax and local Git publication. Seven additional real Neovim exit-status cases run in hosted validation and were also exercised locally with the pinned macOS ARM64 release. Hosted checks exercise Go test/lint/security, GoReleaser snapshots, Aube, Node/Bun/language-neutral mise tasks, Docker validation, Neovim tools/tests, the no-credential Homebrew skip and artifact handoff.
+The checked-in suite verifies Linux x64 consumers and 60 executable contracts, including real mise graphs, Ruby syntax and local Git publication. Seven additional real Neovim exit-status cases run in hosted validation and were also exercised locally with the pinned macOS ARM64 release. Hosted checks exercise Go test/lint/security, GoReleaser snapshots, Aube, Node/Bun/language-neutral mise tasks, Docker validation, Neovim tools/tests, the no-credential Homebrew skip and artifact handoff.
 
 Production Cloudflare/GHCR/tap/release/dispatch/Tailscale operations are not exercised using live write credentials. Operators must configure environments, App permissions, registry/service access, branch protection and receiving infrastructure policy. The receiver must verify source and artifact provenance; dispatch acceptance does not prove deployment completion. macOS/ARM execution and self-hosted provisioning also need real consumer validation before relying on them.
 
@@ -165,3 +165,15 @@ The incomplete status on `e764dba` exposed four further findings:
 | 2: Docker validation caller grants packages:write | Incorrect repeat of the nested-definition requirement, described above. Actual build jobs remain read-only. |
 | 3: Fork Docker builds automatically restore BuildKit caches | Valid missing guard. Skip automatic fork restores and add complete cache:false opt-out for both restores and exports. This does not provide confidentiality from GitHub fork cache access; sensitive contents must never be cached. Boolean-expression cases exercise fork, same-repository PR, publish, manual and opt-out behavior; the hosted explicit exporter disables caching. |
 | 4: Build-only runs never warm the Docker cache | Valid optional performance improvement. Add save-cache:false by default; callers can designate a trusted default-branch push/manual writer with save-cache:true. PRs cannot opt into uploads, and publishing preserves its existing default write behavior when caching is enabled. |
+
+The partial snapshot on `2daa202` retained eight findings:
+
+| Finding | Disposition and verification |
+| --- | --- |
+| 1: Aube retention fails late | Partially valid consistency improvement. Go/Aube now apply Universal's explicit positive-integer/repository-cap policy before setup. The claim that zero or above-cap values always fail upload is incorrect: the [backend](https://github.com/actions/toolkit/blob/main/packages/artifact/src/internal/upload/retention.ts) treats zero as repository default and clamps above-cap values. Tests cover negative/fractional/zero, actual caps and private-repository limits. This library intentionally uses stricter explicit retention inputs. |
+| 2: Universal saves caches before required artifact upload succeeds | Valid. Move saves after uploads, retaining success() guards. Ordering regression covers Universal and Go, so a missing required artifact prevents saves. |
+| 3, 6: mini.nvim remote is nonexistent | Incorrect repeats, already disproven by pinned-commit fetches and hosted real consumers. |
+| 4: MiniTest fails to quit or propagate failure | Incorrect repeat, already covered by all seven real process-level cases. |
+| 5: Configurable Wrangler version has no independent digest | Valid supply-chain limitation, not an untrusted-input escalation. Default pins an exact npm version through a pinned action; trusted callers can select another version. This does not claim independently reviewed byte-level/transitive dependency integrity. Digest-verified CLI distribution is outside the existing deployment contract; production remains unexecuted. |
+| 7: cache-mode is unsupported | Incorrect repeat; GitHub explicitly supports it, as cited above. |
+| 8: Empty Docker environment necessarily fails | Incorrect. Empty optional names omit environment binding. A hosted queue fixture evaluates the empty environment expression without publication credentials; actual protected production publication remains unexecuted. |

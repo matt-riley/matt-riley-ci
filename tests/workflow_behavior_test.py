@@ -55,7 +55,7 @@ class Scripts(unittest.TestCase):
         path.chmod(0o755)
 
     def run_step(self, name, identity, **env):
-        return subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', step(name, identity)['run']], cwd=self.project, env={**self.env, 'COVERAGE_NAME': 'test-coverage', **env}, text=True, capture_output=True, timeout=45)
+        return subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', step(name, identity)['run']], cwd=self.project, env={**self.env, 'COVERAGE_NAME': 'test-coverage', 'RETENTION': '7', **env}, text=True, capture_output=True, timeout=45)
 
     def okay(self, result):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -114,9 +114,21 @@ run = "test -f count"
         self.assertNotEqual(0, self.run_step('ci.yml', 'paths', BUILD_PATHS='../../outside', FAILURE_PATHS='').returncode)
 
     def test_artifact_retention_respects_the_actual_repository_cap(self):
-        for retention, limit, okay in [('7', '14', True), ('15', '14', False), ('100', '90', False), ('100', '400', True), ('0', '90', False)]:
+        for retention, limit, okay in [('7', '14', True), ('15', '14', False), ('100', '90', False), ('100', '400', True), ('0', '90', False), ('-1', '90', False), ('1.5', '90', False)]:
             result = self.run_step('ci.yml', 'Validate CI inputs', ARTIFACT_PATH='', ARTIFACT_NAME='', RETENTION=retention, GITHUB_RETENTION_DAYS=limit)
             self.assertEqual(okay, result.returncode == 0, result.stdout + result.stderr)
+            for name in ['go-ci.yml', 'aube-ci.yml']:
+                result = self.run_step(name, 'paths', COVERAGE_PATHS='', FAILURE_PATHS='', RETENTION=retention, GITHUB_RETENTION_DAYS=limit)
+                self.assertEqual(okay, result.returncode == 0, result.stdout + result.stderr)
+
+    def test_cache_saves_follow_required_artifact_uploads(self):
+        for name in ['ci.yml', 'go-ci.yml']:
+            steps = next(job['steps'] for job in workflow(name)['jobs'].values() if 'steps' in job)
+            uploads = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/upload-artifact@')]
+            saves = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/cache/save@')]
+            self.assertLess(max(uploads), min(saves))
+            for index in saves:
+                self.assertIn('success()', steps[index]['if'])
 
     def test_artifact_names_fail_before_build_for_backend_forbidden_characters(self):
         for name in ['packages/server', 'back\\slash', 'a:b', 'a"b', 'a<b', 'a>b', 'a|b', 'a*b', 'a?b', 'a\rb', 'a\nb', 'coverage server-α']:

@@ -106,13 +106,17 @@ jobs:
     - name: Resolve artifact paths
       id: paths
       env:
+        RETENTION: ${{ inputs.artifact-retention-days }}
         COVERAGE_PATHS: ${{ inputs.coverage-path }}
         COVERAGE_NAME: ${{ inputs.coverage-artifact-name }}
         FAILURE_NAME: ${{ inputs.failure-artifact-name }}
         FAILURE_PATHS: ${{ inputs.failure-artifact-path }}
       run: |
         python3 - <<'PY'
-        import os, pathlib, uuid
+        import os, pathlib, re, uuid
+        retention = os.environ['RETENTION']
+        if not re.fullmatch(r'[1-9][0-9]*', retention): raise SystemExit('Artifact retention must be a positive integer')
+        if int(retention) > int(os.environ.get('GITHUB_RETENTION_DAYS', '90')): raise SystemExit('Artifact retention exceeds the repository limit')
         for variable in ['COVERAGE_NAME', 'FAILURE_NAME']:
             if any(char in os.environ.get(variable, '') for char in '\"/:<>|*?\\\r\n'):
                 raise SystemExit(variable + ' contains a character forbidden in artifact names')
