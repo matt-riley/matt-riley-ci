@@ -193,6 +193,7 @@ jobs:
       if: ${{ inputs.run-lint }}
       env:
         SCRIPT_NAME: lint
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
       run: |
         aube run "$SCRIPT_NAME"
       shell: bash
@@ -202,12 +203,13 @@ jobs:
       env:
         SCRIPT_NAME: build
         BUILD_ENV: ${{ inputs.build-env }}
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
       run: |
         while IFS= read -r line || [ -n "$line" ]; do
           [ -z "$line" ] && continue
           [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo '::error::build-env must contain KEY=VALUE entries'; exit 1; }
           key="${line%%=*}"
-          case "$key" in GITHUB_*|RUNNER_*|ACTIONS_*|PATH|BASH_ENV|ENV|SCRIPT_NAME|BUILD_ENV) echo '::error::Reserved build-env variable'; exit 1;; esac
+          case "$key" in GITHUB_*|RUNNER_*|ACTIONS_*|PATH|BASH_ENV|ENV|SCRIPT_NAME|BUILD_ENV|NODE_AUTH_TOKEN) echo '::error::Reserved build-env variable'; exit 1;; esac
           export "${line?}"
         done <<< "$BUILD_ENV"
         aube run "$SCRIPT_NAME"
@@ -217,6 +219,7 @@ jobs:
       if: ${{ inputs.run-test }}
       env:
         SCRIPT_NAME: ${{ inputs.test-script }}
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
       run: |
         aube run "$SCRIPT_NAME"
       shell: bash

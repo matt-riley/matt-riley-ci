@@ -268,8 +268,31 @@ run = "test -f count"
     def test_aube_build_env_cannot_change_workflow_control(self):
         self.stub('aube', 'import os\nprint(os.environ.get("URL"))\n')
         self.okay(self.run_step('aube-ci.yml', 'build', SCRIPT_NAME='build', BUILD_ENV='URL=https://example.test?a=b\n'))
-        for value in ['SCRIPT_NAME=test', 'PATH=bad', 'GITHUB_TOKEN=bad', 'no equals']:
+        for value in ['SCRIPT_NAME=test', 'PATH=bad', 'GITHUB_TOKEN=bad', 'NODE_AUTH_TOKEN=bad', 'no equals']:
             self.assertNotEqual(0, self.run_step('aube-ci.yml', 'build', SCRIPT_NAME='build', BUILD_ENV=value).returncode)
+
+    def test_aube_authentication_reaches_every_requested_command(self):
+        self.stub('aube', 'import json, os, sys\nprint(json.dumps([sys.argv[1:], os.environ.get("NODE_AUTH_TOKEN")]))\n')
+        for identity, args in [('install', ['ci']), ('lint', ['run', 'lint']), ('build', ['run', 'build']), ('test', ['run', 'custom-test'])]:
+            with self.subTest(step=identity):
+                config = step('aube-ci.yml', identity)
+                self.assertEqual('${{ secrets.node_auth_token }}', config['env'].get('NODE_AUTH_TOKEN'))
+                for token in ['', 'fake-registry-token']:
+                    result = self.run_step('aube-ci.yml', identity, SCRIPT_NAME='custom-test' if identity == 'test' else identity, BUILD_ENV='', INSTALL_COMMAND='', NODE_AUTH_TOKEN=token)
+                    self.okay(result)
+                    self.assertEqual([args, token], json.loads(result.stdout))
+
+    def test_infra_repository_resolution_never_normalizes_an_invalid_target(self):
+        for target, expected in [('infra', 'default-owner/infra'), ('owner/repo-name', 'owner/repo-name')]:
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            self.okay(self.run_step('request-infra-deploy.yml', 'resolve', DEFAULT_OWNER='default-owner', INPUT_INFRA_REPO=target))
+            self.assertIn('infra_full_name=' + expected + '\n', Path(self.env['GITHUB_OUTPUT']).read_text())
+        for target in ['owner/middle/name', 'owner//name', '/name', 'owner/', '', 'owner/repo name']:
+            with self.subTest(target=target):
+                Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+                result = self.run_step('request-infra-deploy.yml', 'resolve', DEFAULT_OWNER='default-owner', INPUT_INFRA_REPO=target)
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
 
     def docker_env(self, **changes):
         defaults = dict(IMAGE_NAME='', CONTEXT='.', DOCKERFILE='', PLATFORMS='linux/amd64', CACHE_SCOPE='', TAG='', PUSH='false', LOAD='false', DEFAULT_BRANCH='main')
