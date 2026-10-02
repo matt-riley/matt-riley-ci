@@ -164,6 +164,54 @@ run = "test -f count"
         expected = {p.name for p in (ROOT / '.github/workflows').glob('*.yml') if p.name != 'contract-tests.yml' and isinstance(workflow(p.name).get('on', workflow(p.name).get(True)), dict) and 'workflow_call' in workflow(p.name).get('on', workflow(p.name).get(True))}
         self.assertEqual(expected, documented)
 
+    def test_luacheck_checks_asset_bytes_before_exposing_or_executing(self):
+        import hashlib
+        payload = b'fixed asset'
+        digest = hashlib.sha256(payload).hexdigest()
+        self.stub('gh', "import pathlib, sys\na=sys.argv\npathlib.Path(a[a.index('--dir')+1], 'luacheck').write_bytes(b'fixed asset')\n")
+        args = dict(VERSION='v1.2.0', EXPECTED_SHA256='0' * 64)
+        result = self.run_step('nvim-lint.yml', 'Install luacheck', **args)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('checksum mismatch', result.stderr)
+        asset = self.root / 'luacheck-bin' / 'luacheck'
+        self.assertFalse(asset.stat().st_mode & 0o111)
+        self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
+        self.okay(self.run_step('nvim-lint.yml', 'Install luacheck', **dict(args, EXPECTED_SHA256=digest)))
+        self.assertTrue(asset.stat().st_mode & 0o111)
+        self.assertIn(str(asset.parent), Path(self.env['GITHUB_PATH']).read_text())
+        Path(self.env['GITHUB_PATH']).unlink()
+        self.assertNotEqual(0, self.run_step('nvim-lint.yml', 'Install luacheck', **dict(args, EXPECTED_SHA256='invalid')).returncode)
+        self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
+
+    def test_validation_runner_jobs_have_read_only_permissions(self):
+        suite = workflow('contract-tests.yml')
+        for name, job in suite['jobs'].items():
+            if 'runs-on' in job:
+                self.assertNotIn('write', job.get('permissions', suite['permissions']).values(), name)
+        active = {
+            'ci.yml': 'ci', 'go-ci.yml': 'test', 'go-lint.yml': 'lint',
+            'go-security.yml': 'govulncheck', 'aube-ci.yml': 'ci',
+            'nvim-format.yml': 'stylua', 'nvim-lint.yml': 'luacheck',
+            'nvim-tests.yml': 'tests', 'docker-ghcr-publish.yml': 'build',
+            'go-goreleaser.yml': 'snapshot',
+        }
+        for name, job_id in active.items():
+            self.assertNotIn('write', workflow(name)['jobs'][job_id]['permissions'].values(), name)
+        release = workflow('go-goreleaser.yml')['jobs']
+        self.assertEqual('${{ inputs.snapshot }}', release['snapshot']['if'])
+        self.assertNotIn('environment', release['snapshot'])
+        self.assertNotIn('concurrency', release['snapshot'])
+        self.assertEqual('${{ !inputs.snapshot }}', release['goreleaser']['if'])
+        self.assertEqual('write', release['goreleaser']['permissions']['contents'])
+        docker = workflow('docker-ghcr-publish.yml')['jobs']
+        self.assertEqual('${{ !inputs.push }}', docker['build']['if'])
+        self.assertEqual('${{ inputs.push }}', docker['publish']['if'])
+        self.assertTrue(suite['jobs']['go-snapshot']['with']['snapshot'])
+        self.assertFalse(suite['jobs']['docker']['with']['push'])
+        gate = workflow('repository-release-please.yml')['on']
+        self.assertNotIn('pull_request', gate)
+        self.assertEqual(['main'], gate['push']['branches'])
+
     def test_goreleaser_snapshot_and_publish_arguments_fail_closed(self):
         env = dict(SNAPSHOT='true', ARGS='release --clean', TAP_TOKEN='', APP_TOKEN='', TAP_OWNER='owner', TAP_REPO='tap', TAP_FAIL_IF_MISSING='true')
         self.okay(self.run_step('go-goreleaser.yml', 'Validate release authority', **env))

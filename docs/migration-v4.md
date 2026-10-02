@@ -22,3 +22,5 @@ These changes are staged for the next major release. They are not available on e
 Repository maintenance now uses `mise run setup` once and `mise run ci` thereafter. The old exported Go/Node/Bun helper tasks, duplicated inline validator, gh-aw bootstrap, and monthly documentation audit are removed. Validation discovers every Python contract test automatically. Caller examples and generated-reference contracts are checked during normal CI instead of a scheduled audit.
 
 `request-app-deploy.yml` remains the convenient dispatcher for matt-riley/infra. The generic `request-infra-deploy.yml` supports other owners/targets. Both preserve source SHA and artifact run ID as strings and report dispatch acceptance; they do not claim that a remote deployment completed.
+
+Luacheck asset bytes are verified against a pinned SHA-256 before execution. When overriding `luacheck-version`, also pass the matching reviewed `luacheck-sha256`. GoReleaser snapshots use a separate read-only job; publication retains its write permission and release environment.

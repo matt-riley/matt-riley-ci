@@ -223,6 +223,7 @@ None.
 
 ### Job permissions
 
+- `snapshot`: `contents: read`.
 - `goreleaser`: `contents: write`.
 
 ## go-lint.yml
@@ -350,6 +351,7 @@ Neovim Lint (luacheck).
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | working-directory | string | False | . | Directory containing Lua sources and tool configuration |
 | luacheck-version | string | False | v1.2.0 | Pinned luacheck release |
+| luacheck-sha256 | string | False | d68da17fca0697d9e2fb04201f3884abd259fa558b3a449bccaed47f1390defc | Expected SHA-256 of the Linux x64 luacheck asset; pair overrides with luacheck-version |
 
 ### Secrets
 

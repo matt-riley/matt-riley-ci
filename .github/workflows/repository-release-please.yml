@@ -95,6 +95,8 @@ jobs:
         } >> "$GITHUB_STEP_SUMMARY"
     timeout-minutes: 10
   validate:
+    # Call-only maximum required by nested publication definitions.
+    # Every executed validation job explicitly reduces to read; publishers are skipped.
     permissions:
       contents: write
       packages: write

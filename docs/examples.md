@@ -195,6 +195,8 @@ jobs:
 
 ## nvim-lint.yml
 
+The default luacheck asset is checksum-pinned. Pair any version override with a reviewed `luacheck-sha256`.
+
 Commit Lua sources and optional .luacheckrc. Only Linux x64 has a supported standalone luacheck binary.
 
 ```yaml

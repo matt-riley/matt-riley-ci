@@ -54,6 +54,7 @@ jobs:
       coverage-artifact-name: go-coverage
       build-command: go build -ldflags "-s -w" ./...
   go-snapshot:
+    # The called workflow includes a release job; the active snapshot job is read-only.
     permissions:
       contents: write
     uses: ./.github/workflows/go-goreleaser.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
@@ -104,6 +105,7 @@ jobs:
       build-env: |
         API_ENDPOINT_URL=https://example.test
   docker:
+    # The called workflow includes publication; push:false selects its read-only build job.
     uses: ./.github/workflows/docker-ghcr-publish.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     permissions:
       contents: read

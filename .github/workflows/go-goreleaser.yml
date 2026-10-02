@@ -79,12 +79,12 @@ name: Go GoReleaser
         description: GitHub App private key used to mint a short-lived Homebrew tap token (paired with inputs.tap-app-id)
         required: false
 jobs:
-  goreleaser:
+  snapshot:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
-      contents: write
-    steps:
+      contents: read
+    steps: &goreleaser_steps
     - name: Checkout
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       with:
@@ -157,7 +157,7 @@ jobs:
       id: goreleaser-args
       shell: bash
       env:
-        TAP_TOKEN: ${{ steps.app-token.outputs.token || secrets.homebrew-tap-token || '' }}
+        TAP_TOKEN: ${{ !inputs.snapshot && (steps.app-token.outputs.token || secrets.homebrew-tap-token) || '' }}
         APP_TOKEN: ${{ steps.app-token.outputs.token || '' }}
         TAP_OWNER: ${{ inputs.tap-owner }}
         TAP_REPO: ${{ inputs.tap-repo }}
@@ -229,7 +229,15 @@ jobs:
           printf -- "- Release: %s\n" "$FIELD_0"
           printf -- "- Tap token source: %s\n" "$FIELD_1"
         } >> "$GITHUB_STEP_SUMMARY"
+    if: ${{ inputs.snapshot }}
+  goreleaser:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: write
+    steps: *goreleaser_steps
     environment: ${{ inputs.environment }}
     concurrency:
       group: goreleaser:${{ github.repository }}
       cancel-in-progress: false
+    if: ${{ !inputs.snapshot }}
