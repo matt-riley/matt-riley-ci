@@ -333,6 +333,8 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **args).returncode)
         subprocess.run(['git', 'add', 'package-lock.json'], cwd=self.project, check=True)
         self.okay(self.run_step('aube-ci.yml', 'lockfile', **args))
+        subprocess.run(['git', 'add', 'package.json'], cwd=self.project, check=True)
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, LOCKFILE_PATH='package.json')).returncode)
         for lockfile in [str(self.project / 'package-lock.json'), '../package-lock.json']:
             self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, LOCKFILE_PATH=lockfile)).returncode)
         link = self.project / 'linked-lock.json'
