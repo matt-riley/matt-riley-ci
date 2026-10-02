@@ -137,10 +137,11 @@ jobs:
         TAG: ${{ inputs.tag-name }}
         PUSH: ${{ inputs.push }}
         LOAD: ${{ inputs.load }}
+        OUTPUTS: ${{ inputs.outputs }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         python3 - <<'PY'
-        import hashlib, os, re
+        import csv, hashlib, os, re
         e = os.environ
         image = e['IMAGE_NAME'] or 'ghcr.io/' + e['GITHUB_REPOSITORY'].lower()
         component = r'[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*'
@@ -148,6 +149,8 @@ jobs:
         platforms = e['PLATFORMS'].split(',')
         if not platforms or any(not re.fullmatch(r'linux/(amd64|arm64|arm/v7)', p) for p in platforms): raise SystemExit('Unsupported platform')
         if e['LOAD'] == 'true' and (len(platforms) != 1 or e['PUSH'] == 'true'): raise SystemExit('load requires one platform and push:false')
+        docker_exporter = any('type=docker' in [field.strip() for field in row] for line in e['OUTPUTS'].splitlines() if line.strip() for row in csv.reader([line], skipinitialspace=True))
+        if docker_exporter and len(platforms) != 1: raise SystemExit('The Docker exporter requires one platform')
         trusted = e['GITHUB_EVENT_NAME'] in ['push', 'workflow_dispatch', 'release'] and (e['GITHUB_REF'].startswith('refs/tags/') or e['GITHUB_REF'] == 'refs/heads/' + e['DEFAULT_BRANCH'])
         if e['PUSH'] == 'true' and not trusted: raise SystemExit('Publishing requires a trusted default-branch or tag event')
         tag = e['TAG']
@@ -161,7 +164,7 @@ jobs:
         host = 'amd64' if e['RUNNER_ARCH'] == 'X64' else 'arm64'
         emulate = any(p != 'linux/' + host for p in platforms)
         with open(e['GITHUB_OUTPUT'], 'a') as out:
-            out.write(f'name={image}\nscope={scope}\nstable={str(bool(tag) and "-" not in tag.split("+")[0]).lower()}\nemulate={str(emulate).lower()}\n')
+            out.write(f'name={image}\nscope={scope}\nstable={str(bool(tag) and "-" not in tag.split("+")[0]).lower()}\nemulate={str(emulate).lower()}\ndocker_exporter={str(docker_exporter).lower()}\n')
         PY
       shell: bash
     - name: Resolve metadata rules
@@ -216,8 +219,8 @@ jobs:
         build-args: ${{ inputs.build-args }}
         cache-from: type=gha,scope=${{ steps.image.outputs.scope }}
         cache-to: ${{ inputs.push && format('type=gha,mode=max,scope={0}', steps.image.outputs.scope) || '' }}
-        provenance: ${{ !inputs.load && inputs.provenance }}
-        sbom: ${{ !inputs.load && inputs.sbom }}
+        provenance: ${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.provenance }}
+        sbom: ${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.sbom }}
         file: ${{ inputs.dockerfile }}
         load: ${{ inputs.load }}
         outputs: ${{ inputs.outputs }}

@@ -22,6 +22,8 @@ class WorkflowLoader(yaml.SafeLoader):
 def unique_mapping(loader, node, deep=False):
     result = {}
     for key, value in node.value:
+        if key.tag == 'tag:yaml.org,2002:merge':
+            raise ValueError('YAML merge keys are outside this workflow policy; use anchors and aliases')
         key = loader.construct_object(key, deep=deep)
         if key in result:
             raise ValueError(f"Duplicate YAML key: {key}")
@@ -99,6 +101,8 @@ def validate(directory):
                         if not valid.get(spec['type'], False):
                             raise ValueError(job_name + ': invalid input type for ' + name)
                     granted = job.get('permissions', workflow.get('permissions', {}))
+                    if not isinstance(granted, dict):
+                        raise ValueError(job_name + ': local callers require scoped permission mappings')
                     levels = {'none': 0, 'read': 1, 'write': 2}
                     for key, minimum in call_permissions(target).items():
                         if levels.get(granted.get(key, 'none'), 0) < minimum:

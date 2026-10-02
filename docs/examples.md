@@ -84,7 +84,7 @@ jobs:
 
 ## docker-ghcr-publish.yml
 
-Commit Dockerfile. Select platforms explicitly for cross-platform publishing. For PR validation set push:false and omit tag-name; load:true requires a single platform and automatically disables attestations unsupported by the Docker exporter. Publishing keeps attestations enabled by default.
+Commit Dockerfile. Select platforms explicitly for cross-platform publishing. For PR validation set push:false and omit tag-name. Both load:true and outputs containing type=docker require a single platform and automatically disable attestations unsupported by the Docker exporter. Other compatible exporters and publishing retain attestations by default.
 
 ```yaml
 name: Docker GHCR Publish

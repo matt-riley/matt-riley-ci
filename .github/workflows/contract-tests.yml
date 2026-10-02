@@ -120,6 +120,15 @@ jobs:
       context: fixtures/docker
       push: false
       load: true
+  docker-export:
+    uses: ./.github/workflows/docker-ghcr-publish.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
+    permissions:
+      contents: read
+      packages: write
+    with:
+      context: fixtures/docker
+      push: false
+      outputs: type=docker,dest=/tmp/contract-image.tar
   nvim-format:
     uses: ./.github/workflows/nvim-format.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
@@ -179,6 +188,7 @@ jobs:
     - neutral
     - aube
     - docker
+    - docker-export
     - nvim-format
     - nvim-lint
     - nvim-tests

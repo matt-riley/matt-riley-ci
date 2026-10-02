@@ -431,7 +431,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                 self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
 
     def docker_env(self, **changes):
-        defaults = dict(IMAGE_NAME='', CONTEXT='.', DOCKERFILE='', PLATFORMS='linux/amd64', CACHE_SCOPE='', TAG='', PUSH='false', LOAD='false', DEFAULT_BRANCH='main')
+        defaults = dict(IMAGE_NAME='', CONTEXT='.', DOCKERFILE='', PLATFORMS='linux/amd64', CACHE_SCOPE='', TAG='', PUSH='false', LOAD='false', OUTPUTS='', DEFAULT_BRANCH='main')
         return dict(defaults, **changes)
 
     def test_docker_prereleases_do_not_tag_latest_or_install_unneeded_qemu(self):
@@ -459,8 +459,13 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertEqual({'contents': 'read'}, jobs['build']['permissions'])
         self.assertEqual('write', jobs['publish']['permissions']['packages'])
         build = step('docker-ghcr-publish.yml', 'build')['with']
-        self.assertEqual('${{ !inputs.load && inputs.provenance }}', build['provenance'])
-        self.assertEqual('${{ !inputs.load && inputs.sbom }}', build['sbom'])
+        self.assertEqual("${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.provenance }}", build['provenance'])
+        self.assertEqual("${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.sbom }}", build['sbom'])
+        for outputs, docker in [('', False), ('type=oci,dest=image.tar', False), ('type=docker,dest=image.tar', True), ('type=local,dest=out\ntype=docker,dest="image,archive.tar"', True)]:
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(OUTPUTS=outputs)))
+            self.assertIn('docker_exporter=' + str(docker).lower(), Path(self.env['GITHUB_OUTPUT']).read_text())
+        self.assertNotEqual(0, self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(OUTPUTS='type=docker,dest=image.tar', PLATFORMS='linux/amd64,linux/arm64')).returncode)
         contract = workflow('docker-ghcr-publish.yml')['on']['workflow_call']['inputs']
         self.assertTrue(contract['provenance']['default'])
         self.assertTrue(contract['sbom']['default'])
@@ -668,8 +673,15 @@ class Policy(unittest.TestCase):
             self.assertTrue(self.checks.validate(root))
             caller.write_text(text.replace('contents: read}', 'contents: read, packages: read}'))
             self.assertEqual([], self.checks.validate(root))
+            for shorthand in ['read-all', 'write-all']:
+                caller.write_text(text.replace('{contents: read}', shorthand))
+                self.assertTrue(any('scoped permission mappings' in error for error in self.checks.validate(root)))
             callee.unlink()
             self.assertTrue(self.checks.validate(root))
+            (root / 'leaf.yml').write_text('on: {workflow_call: {}}\njobs:\n  run:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions: {packages: write}\n    steps: [{run: echo okay}]\n')
+            callee.write_text('on: {workflow_call: {}}\npermissions: {contents: read}\njobs:\n  run:\n    uses: ./.github/workflows/leaf.yml\n')
+            caller.write_text(text.replace('contents: read}', 'contents: read, packages: write}'))
+            self.assertTrue(any('callee.yml' in error and 'caller must grant packages' in error for error in self.checks.validate(root)))
 
     def test_registration_and_release_gate_cover_all_checks_and_merge_queue(self):
         tests = workflow('contract-tests.yml')
@@ -708,6 +720,14 @@ class Policy(unittest.TestCase):
         release = workflow('repository-release-please.yml')['jobs']['release']
         self.assertNotIn('environment', release)
         self.assertEqual('release', release['with']['environment'])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = 'on: push\njobs:\n  first: &defaults\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions: {contents: read}\n    steps: [{run: echo okay}]\n  second: *defaults\n'
+            path = root / 'anchors.yml'
+            path.write_text(source)
+            self.assertEqual([], self.checks.validate(root))
+            path.write_text(source.replace('second: *defaults', 'second:\n    <<: *defaults'))
+            self.assertTrue(any('YAML merge keys' in error for error in self.checks.validate(root)))
 
 
 if __name__ == '__main__':
