@@ -234,7 +234,7 @@ Go Lint.
 | go-version-file | string | False |  | Module file relative to repository root; empty resolves working-directory/go.mod |
 | runner | string | False | ubuntu-latest | Runner label |
 | working-directory | string | False | . | Directory to run commands in |
-| golangci-version | string | False | v2.13.2 | golangci-lint version |
+| golangci-version | string | False | v2.14.0 | golangci-lint version |
 | golangci-args | string | False | --timeout=5m | Additional golangci-lint args |
 | continue-on-error | boolean | False | False | Continue if golangci-lint reports issues |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
