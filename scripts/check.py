@@ -10,6 +10,8 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # GitHub's reusable-workflow caller schema; environment belongs inside the callee.
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#supported-keywords-for-jobs-that-call-a-reusable-workflow
+# cache-mode is explicitly supported by the current caller schema.
 CALL_JOB_KEYS = {'name', 'uses', 'with', 'secrets', 'strategy', 'needs', 'if', 'concurrency', 'permissions', 'cache-mode'}
 
 

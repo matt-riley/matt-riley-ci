@@ -151,7 +151,10 @@ jobs:
         trusted = e['GITHUB_EVENT_NAME'] in ['push', 'workflow_dispatch', 'release'] and (e['GITHUB_REF'].startswith('refs/tags/') or e['GITHUB_REF'] == 'refs/heads/' + e['DEFAULT_BRANCH'])
         if e['PUSH'] == 'true' and not trusted: raise SystemExit('Publishing requires a trusted default-branch or tag event')
         tag = e['TAG']
-        if tag and not re.fullmatch(r'v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', tag): raise SystemExit('tag-name must be semver')
+        number = r'(?:0|[1-9][0-9]*)'
+        prerelease = r'(?:' + number + r'|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+        version = r'v?' + number + r'\.' + number + r'\.' + number + r'(?:-' + prerelease + r'(?:\.' + prerelease + r')*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
+        if tag and not re.fullmatch(version, tag): raise SystemExit('tag-name must be semver')
         if tag and e['PUSH'] == 'true' and e['GITHUB_REF'] != 'refs/tags/' + tag: raise SystemExit('tag-name must match the triggering release ref')
         scope = e['CACHE_SCOPE'] or hashlib.sha256('\n'.join([image, e['CONTEXT'], e['DOCKERFILE'], e['PLATFORMS']]).encode()).hexdigest()[:24]
         if not re.fullmatch(r'[A-Za-z0-9_.-]+', scope): raise SystemExit('Invalid cache-scope')

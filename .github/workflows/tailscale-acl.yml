@@ -36,7 +36,7 @@ name: Tailscale ACL
         default: 10
         type: number
       environment:
-        description: Optional protected environment for ACL changes
+        description: Optional protected environment for apply runs; tests use no environment
         type: string
         required: false
         default: ''
@@ -117,7 +117,7 @@ jobs:
           printf -- "- Action: %s\n" "$FIELD_0"
           printf -- "- Outcome: %s\n" "$FIELD_1"
         } >> "$GITHUB_STEP_SUMMARY"
-    environment: ${{ inputs.environment }}
+    environment: ${{ (inputs.action == 'apply' || (inputs.action == '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && inputs.environment || '' }}
     concurrency:
       group: tailscale-acl:${{ github.repository }}:${{ inputs.tailnet }}:${{ (inputs.action == 'apply' || (inputs.action == '' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && 'apply' || 'test' }}
       cancel-in-progress: false

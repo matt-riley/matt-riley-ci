@@ -201,7 +201,7 @@ Go GoReleaser.
 | go-version-file | string | False |  | Module file relative to repository root; empty resolves working-directory/go.mod |
 | runner | string | False | ubuntu-latest | Runner label |
 | goreleaser-version | string | False | v2.18.2 | Pinned GoReleaser binary version |
-| args | string | False | release --clean | GoReleaser args |
+| args | string | False | release --clean | GoReleaser release args; use snapshot input for nonpublishing validation |
 | working-directory | string | False | . | Directory containing .goreleaser.yml |
 | timeout-minutes | number | False | 30 | Job timeout in minutes |
 | tap-owner | string | False | matt-riley | Owner of the Homebrew tap repository |
@@ -522,7 +522,7 @@ Tailscale ACL.
 | action | string | False |  | 'test', 'apply', or '' to test on pull requests and apply on pushes to the default branch |
 | runner | string | False | ubuntu-latest | Runner label |
 | timeout-minutes | number | False | 10 | Job timeout in minutes |
-| environment | string | False |  | Optional protected environment for ACL changes |
+| environment | string | False |  | Optional protected environment for apply runs; tests use no environment |
 
 ### Secrets
 

@@ -135,7 +135,7 @@ jobs:
 
 ## go-goreleaser.yml
 
-Commit go.mod and .goreleaser.yaml/.yml. Protect the release environment. Optional tap credentials use tap-app-id/private-key or homebrew-tap-token; missing credentials skip only Homebrew unless configured to fail. For PR validation set snapshot:true and use pull_request.
+Commit go.mod and .goreleaser.yaml/.yml. Protect the release environment. Optional tap credentials use tap-app-id/private-key or homebrew-tap-token; a failed App token can fall back to the supplied PAT. Missing credentials skip only Homebrew unless configured to fail. For PR validation set snapshot:true and use pull_request; publish mode rejects snapshot/auto-snapshot/help flags and skipping publish.
 
 ```yaml
 name: Go GoReleaser
@@ -316,7 +316,7 @@ jobs:
 
 ## tailscale-acl.yml
 
-Configure the Tailscale federated identity and restrict source workflow/repository/branch claims. Commit policy.hujson. PRs validate; default-branch pushes apply. Protect apply through the environment input and Tailscale identity policy.
+Configure the Tailscale federated identity and restrict source workflow/repository/branch claims. Commit policy.hujson. PRs validate; default-branch pushes apply. Protect apply through the environment input and Tailscale identity policy. The protected environment is bound only to applies; authorize the appropriate environment-free test context as well. [GitHub OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc#example-subject-claims) differ between environment jobs and PR/branch jobs; use the actual subject format configured for your repository.
 
 ```yaml
 name: Tailscale ACL

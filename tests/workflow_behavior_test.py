@@ -293,6 +293,18 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertIn('value=release --clean --snapshot --skip=publish', Path(self.env['GITHUB_OUTPUT']).read_text())
         self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(env, SNAPSHOT='false', GITHUB_EVENT_NAME='pull_request')).returncode)
         self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'goreleaser-args', **dict(env, ARGS='release\nvalue=bad')).returncode)
+        trusted = dict(env, SNAPSHOT='false', GITHUB_REF='refs/tags/v1.2.3')
+        for args in ['release --snapshot', 'release --snapshot=true', 'release --auto-snapshot', 'release --skip=publish', 'release --skip homebrew,publish', 'release --skip=homebrew --skip=publish', 'release --skip=\'"publish",homebrew\'', 'release --help']:
+            self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(trusted, ARGS=args)).returncode, args)
+        for args in ['release --clean', 'release --skip=homebrew', 'release --skip homebrew', 'release --snapshot=false --auto-snapshot=false', 'release --release-notes "--snapshot"']:
+            self.okay(self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(trusted, ARGS=args)))
+        app = step('go-goreleaser.yml', 'app-token')
+        self.assertTrue(app['continue-on-error'])
+        self.okay(self.run_step('go-goreleaser.yml', 'goreleaser-args', **dict(trusted, TAP_TOKEN='fake-fallback-pat', APP_TOKEN='')))
+        self.assertIn('tap_source=pat', Path(self.env['GITHUB_OUTPUT']).read_text())
+        self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'goreleaser-args', **trusted).returncode)
+        self.okay(self.run_step('go-goreleaser.yml', 'goreleaser-args', **dict(trusted, TAP_FAIL_IF_MISSING='false')))
+        self.assertIn('--skip=homebrew', Path(self.env['GITHUB_OUTPUT']).read_text())
 
     def test_scanner_cache_only_reuses_exact_pinned_versions(self):
         for version, cacheable in [('v1.1.4', 'true'), ('latest', 'false'), ('main', 'false')]:
@@ -439,6 +451,10 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                 self.assertNotEqual(0, self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(IMAGE_NAME=image)).returncode)
         for image in ['ghcr.io/owner/image', 'ghcr.io/owner/nested/image', 'ghcr.io/owner/image__name']:
             self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(IMAGE_NAME=image)))
+        for tag in ['v01.2.3', 'v1.02.3', 'v1.2.03', 'v1.2.3-01', 'v1.2.3-rc..1', 'v1.2.3+build..id']:
+            self.assertNotEqual(0, self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(TAG=tag)).returncode, tag)
+        for tag in ['v0.0.0', '1.2.3-0', 'v1.2.3-rc.1+build.00', 'v1.2.3-01a']:
+            self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(TAG=tag)))
         jobs = workflow('docker-ghcr-publish.yml')['jobs']
         self.assertEqual({'contents': 'read'}, jobs['build']['permissions'])
         self.assertEqual('write', jobs['publish']['permissions']['packages'])
@@ -541,6 +557,9 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertEqual(auto_apply, explicit_apply)
         self.assertEqual(pr_test, explicit_test)
         self.assertNotEqual(auto_apply, pr_test)
+        environment = workflow('tailscale-acl.yml')['jobs']['acl']['environment']
+        for event, ref, action, protected in [('push', 'refs/heads/main', '', 'production'), ('workflow_dispatch', 'refs/heads/main', 'apply', 'production'), ('pull_request', 'refs/pull/1/merge', '', ''), ('push', 'refs/heads/main', 'test', '')]:
+            self.assertEqual(protected, expression(environment, event=event, ref=ref, action=action, environment='production'))
 
     def test_lockfile_sync_rejects_directories_and_commits_only_the_lockfile(self):
         for lockfile in ['.', '..', 'dir/name', '']:
@@ -661,6 +680,9 @@ class Policy(unittest.TestCase):
         runs = [step.get('run', '') for step in tests['jobs']['validate']['steps']]
         self.assertTrue(any('scripts/check.py' in run for run in runs))
         self.assertTrue(any('scripts/check_nvim.py --prepare' in run for run in runs))
+        bootstrap = step('contract-tests.yml', 'Install actionlint')
+        self.assertTrue(bootstrap['uses'].startswith('jdx/mise-action@'))
+        self.assertEqual('2026.9.18', str(bootstrap['with']['version']))
         release = workflow('repository-release-please.yml')
         self.assertEqual('validate', release['jobs']['release']['needs'])
         run = step('repository-release-please.yml', 'move')['run']
@@ -675,6 +697,9 @@ class Policy(unittest.TestCase):
             base = {'on': 'push', 'permissions': {'contents': 'read'}, 'jobs': {'run': {'uses': './.github/workflows/callee.yml', 'with': {'environment': 'release', 'snapshot': True}}}}
             caller = root / 'caller.yml'
             caller.write_text(yaml.safe_dump(base))
+            self.assertEqual([], self.checks.validate(root))
+            supported = dict(base, jobs={'run': dict(base['jobs']['run'], **{'cache-mode': 'read'})})
+            caller.write_text(yaml.safe_dump(supported))
             self.assertEqual([], self.checks.validate(root))
             for extra in [{'environment': 'release'}, {'runs-on': 'ubuntu-latest'}, {'with': {'snapshot': True}}, {'with': {'environment': 'release', 'snapshot': 'true'}}, {'with': {'environment': 'release', 'unknown': True}}]:
                 invalid = dict(base, jobs={'run': dict(base['jobs']['run'], **extra)})
