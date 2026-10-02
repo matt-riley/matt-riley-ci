@@ -231,6 +231,7 @@ jobs:
     environment: ${{ inputs.environment }}
     concurrency:
       group: homebrew:${{ inputs.tap-repo }}
+      queue: max
       cancel-in-progress: false
     outputs:
       status: ${{ steps.publish.outputs.status || (steps.auth.outputs.status == 'skipped' && 'skipped') || 'failed' }}

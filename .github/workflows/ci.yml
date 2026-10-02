@@ -33,7 +33,7 @@ name: Universal CI
         default: false
         type: boolean
       save-cache:
-        description: Save dependency and build caches after a successful run
+        description: Save dependency and build caches after successful checks and required uploads
         required: false
         default: false
         type: boolean

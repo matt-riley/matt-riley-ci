@@ -166,7 +166,7 @@ The incomplete status on `e764dba` exposed four further findings:
 | 3: Fork Docker builds automatically restore BuildKit caches | Valid missing guard. Skip automatic fork restores and add complete cache:false opt-out for both restores and exports. This does not provide confidentiality from GitHub fork cache access; sensitive contents must never be cached. Boolean-expression cases exercise fork, same-repository PR, publish, manual and opt-out behavior; the hosted explicit exporter disables caching. |
 | 4: Build-only runs never warm the Docker cache | Valid optional performance improvement. Add save-cache:false by default; callers can designate a trusted default-branch push/manual writer with save-cache:true. PRs cannot opt into uploads, and publishing preserves its existing default write behavior when caching is enabled. |
 
-The partial snapshot on `2daa202` retained eight findings:
+The partial snapshot on `2daa202` first retained eight findings, later expanding to twelve:
 
 | Finding | Disposition and verification |
 | --- | --- |
@@ -177,3 +177,7 @@ The partial snapshot on `2daa202` retained eight findings:
 | 5: Configurable Wrangler version has no independent digest | Valid supply-chain limitation, not an untrusted-input escalation. Default pins an exact npm version through a pinned action; trusted callers can select another version. This does not claim independently reviewed byte-level/transitive dependency integrity. Digest-verified CLI distribution is outside the existing deployment contract; production remains unexecuted. |
 | 7: cache-mode is unsupported | Incorrect repeat; GitHub explicitly supports it, as cited above. |
 | 8: Empty Docker environment necessarily fails | Incorrect. Empty optional names omit environment binding. A hosted queue fixture evaluates the empty environment expression without publication credentials; actual protected production publication remains unexecuted. |
+| 9: A later summary failure occurs after cache save | Valid wording limitation. Saves follow successful checks/required outputs, while summaries describe final outcomes; a reporting failure does not invalidate checked build caches. Clarify descriptions/performance guidance rather than masking reporting failures or presenting a pre-save summary as the final job result. |
+| 10: Homebrew concurrency can replace a pending formula publication | Valid. Use the same bounded queue:max policy as Docker, scoped to the tap. Regression checks preserve cancel-in-progress:false; the hosted generic matrix proves max queues retain three jobs. Actual credentialed tap publication remains unexecuted, and overflow beyond 100 can still cancel jobs. |
+| 11: Successful MiniTest runs never terminate | Incorrect repeat, disproven by the positive real process case and hosted consumer. |
+| 12: Removing monthly-docs-audit disables it | Intentional major-version removal, already disclosed in the PR and migration guide. Deterministic validation replaces the maintenance entrypoint but does not recreate agentic audit reports. |

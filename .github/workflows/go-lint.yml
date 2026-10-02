@@ -43,7 +43,7 @@ name: Go Lint
         required: false
         default: true
       save-cache:
-        description: Save Go caches on a successful trusted default-branch run; designate one writer per pipeline
+        description: Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline
         type: boolean
         required: false
         default: false

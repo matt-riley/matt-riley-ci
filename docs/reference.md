@@ -50,7 +50,7 @@ Universal CI.
 | test | boolean | False | False | Run the mise test task |
 | vet | boolean | False | False | Run the mise vet task |
 | fmt | boolean | False | False | Run the mise fmt task |
-| save-cache | boolean | False | False | Save dependency and build caches after a successful run |
+| save-cache | boolean | False | False | Save dependency and build caches after successful checks and required uploads |
 | task-prefix | string | False |  | Optional prefix added before standard task names (for example "go-" -> "go-test") |
 | task-env | string | False |  | Optional multiline KEY=VALUE entries exported before running mise tasks |
 | runner | string | False | ubuntu-latest | Runner label |
@@ -180,7 +180,7 @@ Go CI.
 | failure-artifact-path | string | False |  | Optional diagnostics relative to working-directory |
 | failure-artifact-name | string | False | go-diagnostics | Unique failure artifact name |
 | cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
-| save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
+| save-cache | boolean | False | False | Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline |
 
 ### Secrets
 
@@ -213,7 +213,7 @@ Go GoReleaser.
 | environment | string | False | release | Protected release environment |
 | snapshot | boolean | False | False | Validate/build a snapshot without publishing |
 | cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
-| save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
+| save-cache | boolean | False | False | Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline |
 
 ### Secrets
 
@@ -244,7 +244,7 @@ Go Lint.
 | continue-on-error | boolean | False | False | Continue if golangci-lint reports issues |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
-| save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
+| save-cache | boolean | False | False | Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline |
 
 ### Secrets
 
@@ -270,7 +270,7 @@ Go Security.
 | govulncheck-version | string | False | v1.1.4 | govulncheck module version (e.g. v1.1.4; set latest to float) |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
-| save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
+| save-cache | boolean | False | False | Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline |
 
 ### Secrets
 

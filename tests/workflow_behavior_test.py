@@ -569,6 +569,9 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
             self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, **change)).returncode)
 
     def test_homebrew_optional_credentials_skip_before_asset_download(self):
+        queue = workflow('homebrew-formula.yml')['jobs']['update-formula']['concurrency']
+        self.assertEqual('max', queue['queue'])
+        self.assertFalse(queue['cancel-in-progress'])
         self.okay(self.run_step('homebrew-formula.yml', 'auth', HAS_TOKEN='false', REQUIRED='false'))
         self.assertIn('status=skipped', Path(self.env['GITHUB_OUTPUT']).read_text())
         steps = workflow('homebrew-formula.yml')['jobs']['update-formula']['steps']
