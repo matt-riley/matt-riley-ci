@@ -73,7 +73,7 @@ name: Docker GHCR Publish
         default: 30
         type: number
       load:
-        description: Load a single-platform result into the runner Docker daemon
+        description: Load a single-platform result into the runner Docker daemon; disables unsupported attestations
         type: boolean
         required: false
         default: false
@@ -211,8 +211,8 @@ jobs:
         build-args: ${{ inputs.build-args }}
         cache-from: type=gha,scope=${{ steps.image.outputs.scope }}
         cache-to: ${{ inputs.push && format('type=gha,mode=max,scope={0}', steps.image.outputs.scope) || '' }}
-        provenance: ${{ inputs.provenance }}
-        sbom: ${{ inputs.sbom }}
+        provenance: ${{ !inputs.load && inputs.provenance }}
+        sbom: ${{ !inputs.load && inputs.sbom }}
         file: ${{ inputs.dockerfile }}
         load: ${{ inputs.load }}
         outputs: ${{ inputs.outputs }}

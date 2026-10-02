@@ -211,6 +211,9 @@ run = "test -f count"
         gate = workflow('repository-release-please.yml')['on']
         self.assertNotIn('pull_request', gate)
         self.assertEqual(['main'], gate['push']['branches'])
+        release_gate = workflow('repository-release-please.yml')['jobs']
+        self.assertEqual('release', release_gate['release']['with']['environment'])
+        self.assertEqual('release', release_gate['move-major-tag']['environment'])
 
     def test_goreleaser_snapshot_and_publish_arguments_fail_closed(self):
         env = dict(SNAPSHOT='true', ARGS='release --clean', TAP_TOKEN='', APP_TOKEN='', TAP_OWNER='owner', TAP_REPO='tap', TAP_FAIL_IF_MISSING='true')
@@ -284,6 +287,32 @@ run = "test -f count"
         jobs = workflow('docker-ghcr-publish.yml')['jobs']
         self.assertEqual({'contents': 'read'}, jobs['build']['permissions'])
         self.assertEqual('write', jobs['publish']['permissions']['packages'])
+        build = step('docker-ghcr-publish.yml', 'build')['with']
+        self.assertEqual('${{ !inputs.load && inputs.provenance }}', build['provenance'])
+        self.assertEqual('${{ !inputs.load && inputs.sbom }}', build['sbom'])
+        contract = workflow('docker-ghcr-publish.yml')['on']['workflow_call']['inputs']
+        self.assertTrue(contract['provenance']['default'])
+        self.assertTrue(contract['sbom']['default'])
+        self.assertNotIn('provenance', workflow('contract-tests.yml')['jobs']['docker']['with'])
+        self.assertNotIn('sbom', workflow('contract-tests.yml')['jobs']['docker']['with'])
+
+    def test_infra_dispatch_passes_generated_payload_to_curl(self):
+        self.stub('curl', "import json, os, pathlib, sys\na=sys.argv\nbody=a[a.index('--data-binary')+1]\nassert body.startswith('@')\npathlib.Path(os.environ['RUNNER_TEMP'], 'sent-payload.json').write_text(pathlib.Path(body[1:]).read_text())\npathlib.Path(os.environ['RUNNER_TEMP'], 'request.json').write_text(json.dumps(a))\n")
+        for run in ['0', '12345678901234567890']:
+            self.okay(self.run_step('request-infra-deploy.yml', 'dispatch', APP_NAME='test-app', GH_TOKEN='test-token', INFRA_NAME='infra', INFRA_OWNER='owner', SOURCE_REF='refs/heads/main', SOURCE_REPO='owner/project', SOURCE_SHA='a' * 40, ARTIFACT_RUN_ID=run, ARTIFACT_NAME='build' if run != '0' else '', ARTIFACT_DIGEST='b' * 64 if run != '0' else ''))
+            body = json.loads((self.root / 'sent-payload.json').read_text())
+            self.assertEqual('deploy-app', body['event_type'])
+            payload = body['client_payload']
+            self.assertEqual('test-app', payload['app'])
+            self.assertEqual('a' * 40, payload['source_sha'])
+            if run == '0':
+                self.assertNotIn('artifact_run_id', payload)
+            else:
+                self.assertEqual(run, payload['artifact_run_id'])
+                self.assertEqual('build', payload['artifact_name'])
+                self.assertEqual('b' * 64, payload['artifact_digest'])
+            request = json.loads((self.root / 'request.json').read_text())
+            self.assertIn('https://api.github.com/repos/owner/infra/dispatches', request)
 
     def test_pages_rejects_untrusted_source_and_command_injection(self):
         args = dict(PROJECT='site', DIRECTORY='.', BRANCH='', DEFAULT_BRANCH='main')

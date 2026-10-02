@@ -39,7 +39,7 @@ The library now avoids repeated task dependencies, unnecessary tools/emulation, 
 
 ## What remains outside this implementation
 
-The checked-in suite verifies Linux x64 consumers and 40 executable contracts, including real mise graphs, Ruby syntax and local Git publication. Hosted checks exercise Go test/lint/security, GoReleaser snapshots, Aube, Node/Bun/language-neutral mise tasks, Docker validation, Neovim tools/tests and artifact handoff.
+The checked-in suite verifies Linux x64 consumers and 41 executable contracts, including real mise graphs, Ruby syntax and local Git publication. Hosted checks exercise Go test/lint/security, GoReleaser snapshots, Aube, Node/Bun/language-neutral mise tasks, Docker validation, Neovim tools/tests and artifact handoff.
 
 Production Cloudflare/GHCR/tap/release/dispatch/Tailscale operations are not exercised using live write credentials. Operators must configure environments, App permissions, registry/service access, branch protection and receiving infrastructure policy. The receiver must verify source and artifact provenance; dispatch acceptance does not prove deployment completion. macOS/ARM execution and self-hosted provisioning also need real consumer validation before relying on them.
 

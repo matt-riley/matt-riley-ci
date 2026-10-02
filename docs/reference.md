@@ -134,7 +134,7 @@ Docker GHCR Publish.
 | provenance | boolean | False | True | Enable provenance attestation in docker/build-push-action |
 | sbom | boolean | False | True | Enable SBOM generation in docker/build-push-action |
 | timeout-minutes | number | False | 30 | Job timeout in minutes |
-| load | boolean | False | False | Load a single-platform result into the runner Docker daemon |
+| load | boolean | False | False | Load a single-platform result into the runner Docker daemon; disables unsupported attestations |
 | outputs | string | False |  | Optional Buildx exporter configuration (for example type=oci,dest=/tmp/image.tar) |
 | cache-scope | string | False |  | Optional stable cache namespace; empty derives image/context/Dockerfile/platforms |
 | environment | string | False |  | Optional protected GitHub environment |

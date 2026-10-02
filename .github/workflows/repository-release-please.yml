@@ -24,10 +24,12 @@ jobs:
     with:
       config-file: release-please-config.json
       manifest-file: .release-please-manifest.json
+      environment: release
     needs: validate
     if: ${{ inputs.release-tag == '' }}
   move-major-tag:
     name: Move floating major tag
+    environment: release
     needs:
     - validate
     - release

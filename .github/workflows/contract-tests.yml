@@ -114,8 +114,6 @@ jobs:
       context: fixtures/docker
       push: false
       load: true
-      provenance: false
-      sbom: false
   nvim-format:
     uses: ./.github/workflows/nvim-format.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
