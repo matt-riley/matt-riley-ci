@@ -45,6 +45,12 @@ jobs:
       run: |
         python scripts/check.py
       shell: bash
+    - name: Verify real Neovim failure paths
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        python scripts/check_nvim.py --prepare
+      shell: bash
   go:
     uses: ./.github/workflows/go-ci.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:

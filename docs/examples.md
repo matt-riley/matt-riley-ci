@@ -180,7 +180,7 @@ jobs:
 
 ## nvim-format.yml
 
-Commit lua/, plugin/ and tests/, or set paths to the paths that actually exist. Quoted paths support spaces.
+Commit lua/, plugin/ and tests/, or set paths to the paths that actually exist. Quoted paths support spaces. Pair stylua-version overrides with the matching per-platform stylua-sha256; default archives are checksum-pinned.
 
 ```yaml
 name: Neovim Format (stylua)
@@ -212,7 +212,7 @@ jobs:
 
 ## nvim-tests.yml
 
-Commit tests/minimal_init.lua that appends os.getenv("MINI_PATH") to runtimepath, calls require("mini.test").setup(), and appends the consumer repository to runtimepath. Commit test*.lua files. Set minimal-init/test-directory when paths differ.
+Commit tests/minimal_init.lua that appends os.getenv("MINI_PATH") to runtimepath, calls require("mini.test").setup(), and appends the consumer repository to runtimepath. Commit nonempty test*.lua test sets. Set minimal-init/test-directory when paths differ. The workflow supplies its CI reporter and fails init/collection errors. Pair stable release overrides with neovim-sha256; nightly uses GitHub asset metadata by default.
 
 ```yaml
 name: Neovim Tests (mini.test)

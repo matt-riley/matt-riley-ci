@@ -73,7 +73,7 @@ jobs:
             raise SystemExit('Deployments require a trusted default-branch push or manual run')
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', e['PROJECT']): raise SystemExit('Invalid Pages project name')
         path = pathlib.PurePosixPath(e['DIRECTORY'])
-        if path.is_absolute() or '..' in path.parts or not re.fullmatch(r'[A-Za-z0-9_./-]+', e['DIRECTORY']): raise SystemExit('Invalid deploy-directory')
+        if path.is_absolute() or '..' in path.parts or e['DIRECTORY'].startswith('-') or not re.fullmatch(r'[A-Za-z0-9_./-]+', e['DIRECTORY']): raise SystemExit('Invalid deploy-directory')
         branch = e['BRANCH'] or e['GITHUB_REF_NAME']
         if not re.fullmatch(r'[A-Za-z0-9_./-]+', branch): raise SystemExit('Invalid branch')
         with open(e['GITHUB_OUTPUT'], 'a') as out: out.write('branch=' + branch + '\n')

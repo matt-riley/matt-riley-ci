@@ -144,7 +144,7 @@ jobs:
         requested = [script for flag, script in [('RUN_LINT', 'lint'), ('RUN_BUILD', 'build'), ('RUN_TEST', os.environ['TEST_SCRIPT'])] if os.environ[flag] == 'true']
         if not requested: raise SystemExit('Enable at least one lint/build/test check')
         for script in requested:
-            if not script or script not in scripts: raise SystemExit('Missing requested script: ' + script)
+            if not script or script.startswith('-') or script not in scripts: raise SystemExit('Missing or invalid requested script: ' + script)
         explicit = os.environ['LOCKFILE_PATH']
         files = [explicit] if explicit else [p for p in ['aube-lock.yaml', 'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'] if pathlib.Path(p).is_file()]
         if len(files) > 1: raise SystemExit('Multiple lockfiles; specify lockfile-path')

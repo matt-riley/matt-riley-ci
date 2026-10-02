@@ -58,7 +58,7 @@ Universal CI.
 | working-directory | string | False | . | Repository directory containing mise configuration and tasks; all task and cache discovery uses this directory |
 | task | string | False | ci | Task to run when no phase flags are enabled; empty is invalid |
 | cache | boolean | False | True | Restore dependency caches |
-| cache-paths | string | False |  | Optional additional cache paths, one per line |
+| cache-paths | string | False |  | Additional cache paths relative to working-directory, one per line; absolute paths and ~ are supported |
 | cache-dependency-path | string | False |  | Optional dependency-file glob, relative to repository root, included in cache identity |
 | artifact-path | string | False |  | Build output paths relative to working-directory; requires artifact-name |
 | artifact-name | string | False |  | Name of the successful build artifact; requires artifact-path |
@@ -123,7 +123,7 @@ Docker GHCR Publish.
 | runner | string | False | ubuntu-latest | Runner label |
 | context | string | False | . | Docker build context |
 | image-name | string | False |  | Full image name (for example ghcr.io/owner/repo) |
-| tag-name | string | False |  | Release tag (semver). Empty value publishes SHA tag only. |
+| tag-name | string | False |  | Release tag (semver), matching the triggering tag ref when publishing. Empty publishes SHA tag only. |
 | dockerfile | string | False |  | Path to Dockerfile (optional) |
 | build-args | string | False |  | Custom build args for docker/build-push-action (multiline) |
 | metadata-tags | string | False |  | Custom docker/metadata-action tags rules (multiline). Empty uses defaults. |
@@ -325,6 +325,7 @@ Neovim Format (stylua).
 | paths | string | False | lua/ plugin/ tests/ | Shell-style quoted path list, passed as arguments without shell evaluation |
 | runner | string | False | ubuntu-latest | Runner label |
 | stylua-version | string | False | v2.4.0 | Pinned stylua release |
+| stylua-sha256 | string | False |  | Reviewed asset SHA-256 for version overrides; empty uses pinned per-platform v2.4.0 digests |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | working-directory | string | False | . | Directory containing Lua sources and tool configuration |
 
@@ -372,6 +373,7 @@ Neovim Tests (mini.test).
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | neovim-version | string | False | v0.12.5 | Exact Neovim release tag, or nightly for intentional compatibility testing |
+| neovim-sha256 | string | False |  | Reviewed asset SHA-256 for release overrides; default release is pinned per platform, nightly uses GitHub asset metadata |
 | mini-version | string | False | a995fe9cd4193fb492b5df69175a351a74b3d36b | Immutable mini.nvim commit SHA (default: v0.17.0) |
 | runner | string | False | ubuntu-latest | Runner label |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |

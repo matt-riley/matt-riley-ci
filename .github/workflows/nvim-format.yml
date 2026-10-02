@@ -17,6 +17,11 @@ name: Neovim Format (stylua)
         type: string
         required: false
         default: v2.4.0
+      stylua-sha256:
+        description: Reviewed asset SHA-256 for version overrides; empty uses pinned per-platform v2.4.0 digests
+        type: string
+        required: false
+        default: ''
       timeout-minutes:
         description: Job timeout in minutes
         required: false
@@ -41,6 +46,7 @@ jobs:
     - name: Install stylua
       env:
         VERSION: ${{ inputs.stylua-version }}
+        EXPECTED_SHA256: ${{ inputs.stylua-sha256 }}
         GH_TOKEN: ${{ github.token }}
       run: |
         case "$RUNNER_OS/$RUNNER_ARCH" in
@@ -51,9 +57,25 @@ jobs:
           *) echo '::error::StyLua supports Linux/macOS x64/arm64 runners'; exit 1;;
         esac
         [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+        [[ "$VERSION" = v2.4.0 || "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::Version overrides require stylua-sha256'; exit 1; }
         install_dir="$RUNNER_TEMP/stylua-bin"
         mkdir -p "$install_dir"
         gh release download "$VERSION" --repo JohnnyMorganz/StyLua --pattern "$asset" --dir "$install_dir"
+        export ASSET_NAME="$asset"
+        python3 - <<'PY'
+        import hashlib, os, pathlib, re
+        pinned = {
+            'stylua-linux-x86_64.zip': 'f9c84c210712061cb03ab8354a34a5d4f5fcf1f369d2ce916bea3ab9f7addac8',
+            'stylua-linux-aarch64.zip': '67bbd6ad4d864ab375babdd125ed926183968f5b6e55d7e0a6f9f425511a5408',
+            'stylua-macos-x86_64.zip': 'bf2ce0a1431c39800cf19068ac50deec5c79e5fa99900cc99159de9c1af80254',
+            'stylua-macos-aarch64.zip': 'ec74ecdc30ec15aefa15f65cc55d6f10f91f97dd30c39c4347954af849e3f248',
+        }
+        e = os.environ
+        expected = e['EXPECTED_SHA256'] or (pinned[e['ASSET_NAME']] if e['VERSION'] == 'v2.4.0' else '')
+        if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Version overrides require a reviewed stylua-sha256')
+        asset = pathlib.Path(e['RUNNER_TEMP']) / 'stylua-bin' / e['ASSET_NAME']
+        if hashlib.sha256(asset.read_bytes()).hexdigest() != expected: raise SystemExit('StyLua asset checksum mismatch')
+        PY
         unzip -q "$install_dir/$asset" -d "$install_dir"
         chmod +x "$install_dir/stylua"
         echo "$install_dir" >> "$GITHUB_PATH"

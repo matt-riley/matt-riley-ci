@@ -73,6 +73,7 @@ jobs:
       run: |
         test -n "$PREFIX" || { echo '::error::release-branch-prefix must not be empty'; exit 1; }
         [[ "$LOCKFILE" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo '::error::lockfile-name must be a filename'; exit 1; }
+        [[ "$LOCKFILE" != . && "$LOCKFILE" != .. ]] || { echo '::error::lockfile-name cannot be a directory'; exit 1; }
     - name: Install pnpm
       uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
       with:
@@ -102,6 +103,7 @@ jobs:
         # shellcheck disable=SC2016
         # The helper expands PUSH_TOKEN only when git invokes it.
         [[ "$LOCKFILE" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo '::error::lockfile-name must be a filename'; exit 1; }
+        [[ "$LOCKFILE" != . && "$LOCKFILE" != .. && -f "$LOCKFILE" && ! -L "$LOCKFILE" ]] || { echo '::error::lockfile-name must identify a regular file'; exit 1; }
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         git add -- "$LOCKFILE"

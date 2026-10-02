@@ -122,6 +122,20 @@ run = "test -f count"
         self.assertIn('ms-playwright', output)
         self.assertNotEqual(first_scope, re.findall(r'scope=(.*)', output)[-1])
 
+    def test_extra_cache_paths_resolve_from_the_consumer_project(self):
+        self.okay(self.run_step('ci.yml', 'cache-metadata', EXTRA_PATHS='.cache/compiler\n~/.cache/global\n/tmp/absolute-cache\n!.cache/private', PLAYWRIGHT_CACHE='false'))
+        output = Path(self.env['GITHUB_OUTPUT']).read_text()
+        self.assertIn(str(self.project / '.cache/compiler'), output)
+        self.assertIn(str(Path.home() / '.cache/global'), output)
+        self.assertIn('/tmp/absolute-cache', output)
+        self.assertIn('!' + str(self.project.resolve() / '.cache/private'), output)
+
+    def test_dependency_cache_fallback_cannot_match_a_build_cache(self):
+        dependencies = step('ci.yml', 'dependencies')['with']
+        build = step('ci.yml', 'go-build-cache')['with']
+        normalize = lambda text: re.sub(r'\s+', '', text)
+        self.assertFalse(normalize(build['key']).startswith(normalize(dependencies['restore-keys'])))
+
     def test_installed_tool_paths_expose_selected_runtime_without_shims(self):
         selected = self.root / 'selected runtime' / 'bin'
         selected.mkdir(parents=True)
@@ -182,6 +196,31 @@ run = "test -f count"
         Path(self.env['GITHUB_PATH']).unlink()
         self.assertNotEqual(0, self.run_step('nvim-lint.yml', 'Install luacheck', **dict(args, EXPECTED_SHA256='invalid')).returncode)
         self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
+
+    def test_neovim_and_stylua_verify_archives_before_extracting(self):
+        import hashlib
+        digest = hashlib.sha256(b'fixture asset').hexdigest()
+        self.stub('gh', '''import json, pathlib, sys
+a = sys.argv
+if a[1:3] == ['release', 'view']:
+    print(json.dumps({'assets': [{'name':'nvim-linux-x86_64.tar.gz', 'digest':'sha256:''' + digest + ''''}]}))
+else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'fixture asset')
+''')
+        for command in ['tar', 'unzip']:
+            self.stub(command, "import os, pathlib\np=pathlib.Path(os.environ['RUNNER_TEMP']); (p/'extracted').touch(); (p/'stylua-bin').mkdir(exist_ok=True); (p/'stylua-bin/stylua').touch()\n")
+        for name, identity, pinned in [('nvim-tests.yml', 'Install Neovim', 'v0.12.5'), ('nvim-format.yml', 'Install stylua', 'v2.4.0')]:
+            with self.subTest(workflow=name):
+                for version, expected in [(pinned, ''), ('v9.9.9', ''), ('v9.9.9', '0' * 64)]:
+                    (self.root / 'extracted').unlink(missing_ok=True)
+                    Path(self.env['GITHUB_PATH']).unlink(missing_ok=True)
+                    result = self.run_step(name, identity, VERSION=version, EXPECTED_SHA256=expected)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse((self.root / 'extracted').exists())
+                    self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
+                self.okay(self.run_step(name, identity, VERSION='v9.9.9', EXPECTED_SHA256=digest))
+                self.assertTrue((self.root / 'extracted').exists())
+                (self.root / 'extracted').unlink()
+        self.okay(self.run_step('nvim-tests.yml', 'Install Neovim', VERSION='nightly', EXPECTED_SHA256=''))
 
     def test_validation_runner_jobs_have_read_only_permissions(self):
         suite = workflow('contract-tests.yml')
@@ -264,6 +303,9 @@ run = "test -f count"
         self.okay(self.run_step('aube-ci.yml', 'lockfile', **args))
         (self.project / 'yarn.lock').write_text('')
         self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **args).returncode)
+        (self.project / 'yarn.lock').unlink()
+        (self.project / 'package.json').write_text('{"scripts":{"--help":"echo skipped"}}')
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, TEST_SCRIPT='--help')).returncode)
 
     def test_aube_build_env_cannot_change_workflow_control(self):
         self.stub('aube', 'import os\nprint(os.environ.get("URL"))\n')
@@ -299,6 +341,9 @@ run = "test -f count"
         return dict(defaults, **changes)
 
     def test_docker_prereleases_do_not_tag_latest_or_install_unneeded_qemu(self):
+        self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(TAG='v2.1.0', PUSH='true', GITHUB_REF='refs/tags/v2.1.0')))
+        for ref in ['refs/tags/v9.9.9', 'refs/heads/main']:
+            self.assertNotEqual(0, self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(TAG='v2.1.0', PUSH='true', GITHUB_REF=ref)).returncode)
         self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(TAG='v2.1.0-rc.1')))
         output = Path(self.env['GITHUB_OUTPUT']).read_text()
         self.assertIn('stable=false', output)
@@ -340,7 +385,7 @@ run = "test -f count"
     def test_pages_rejects_untrusted_source_and_command_injection(self):
         args = dict(PROJECT='site', DIRECTORY='.', BRANCH='', DEFAULT_BRANCH='main')
         self.okay(self.run_step('cloudflare-pages-deploy.yml', 'source', **args))
-        for changes in [dict(PROJECT='site;id'), dict(DIRECTORY='../escape'), dict(BRANCH='main --extra'), dict(GITHUB_EVENT_NAME='pull_request')]:
+        for changes in [dict(PROJECT='site;id'), dict(DIRECTORY='../escape'), dict(DIRECTORY='--help'), dict(BRANCH='main --extra'), dict(GITHUB_EVENT_NAME='pull_request')]:
             self.assertNotEqual(0, self.run_step('cloudflare-pages-deploy.yml', 'source', **dict(args, **changes)).returncode)
         job = workflow('cloudflare-pages-deploy.yml')['jobs']['deploy']
         self.assertEqual({'contents': 'read'}, job['permissions'])
@@ -361,6 +406,53 @@ run = "test -f count"
         self.assertIn("system bin/'tool'", nested_formula)
         self.assertNotIn("system bin/'dist/tool'", nested_formula)
         self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, CLASS_NAME='Tool;raise')).returncode)
+        for change in [dict(GITHUB_REF='refs/tags/v9.9.9'), dict(BINARY='.'), dict(BINARY='./')]:
+            self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, **change)).returncode)
+
+    def test_lockfile_sync_rejects_directories_and_commits_only_the_lockfile(self):
+        for lockfile in ['.', '..', 'dir/name', '']:
+            self.assertNotEqual(0, self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', PREFIX='release-please--', LOCKFILE=lockfile).returncode)
+            self.assertNotEqual(0, self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE=lockfile, PUSH_TOKEN='').returncode)
+        (self.project / 'directory').mkdir()
+        self.assertNotEqual(0, self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='directory', PUSH_TOKEN='').returncode)
+        remote = self.root / 'lockfile-remote.git'
+        subprocess.run(['git', 'init', '--bare', '-q', str(remote)], check=True)
+        (self.project / 'pnpm-lock.yaml').write_text('before')
+        (self.project / 'unrelated.txt').write_text('before')
+        for command in [['init', '-q'], ['config', 'user.name', 'Test'], ['config', 'user.email', 'test@example.test'], ['config', 'commit.gpgsign', 'false'], ['add', '.'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', str(remote)]]:
+            subprocess.run(['git'] + command, cwd=self.project, check=True)
+        (self.project / 'pnpm-lock.yaml').write_text('after')
+        (self.project / 'unrelated.txt').write_text('after')
+        args = dict(HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='')
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'push', **args))
+        changed = subprocess.check_output(['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], cwd=self.project, text=True)
+        self.assertEqual('pnpm-lock.yaml\n', changed)
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'push', **args))
+        self.assertIn('status=unchanged', Path(self.env['GITHUB_OUTPUT']).read_text())
+
+    def test_major_tag_remote_reads_are_authenticated_and_share_one_snapshot(self):
+        self.stub('git', '''import json, os, pathlib, sys
+args = sys.argv[1:]
+log = pathlib.Path(os.environ['RUNNER_TEMP']) / 'git-calls.jsonl'
+with log.open('a') as out: out.write(json.dumps(args) + '\\n')
+if 'rev-list' in args: print('a' * 40)
+if 'ls-remote' in args:
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    count = sum('ls-remote' in call for call in calls)
+    if count == 1:
+        print('c' * 40 + '\\trefs/tags/v1')
+        print('b' * 40 + '\\trefs/tags/v1^{}')
+    else: print('a' * 40 + '\\trefs/tags/v1')
+''')
+        self.okay(self.run_step('repository-release-please.yml', 'move', TAG_NAME='v1.2.3', TESTED_SHA='a' * 40, PUSH_TOKEN='fake-token', HAS_TAG_TOKEN='true'))
+        calls = [json.loads(line) for line in (self.root / 'git-calls.jsonl').read_text().splitlines()]
+        remote_calls = [call for call in calls if any(command in call for command in ['fetch', 'ls-remote', 'push'])]
+        for call in remote_calls:
+            self.assertIn('credential.helper=', call)
+            self.assertTrue(any(arg.startswith('credential.helper=!') for arg in call))
+        self.assertEqual(2, sum('ls-remote' in call for call in calls))
+        push = next(call for call in calls if 'push' in call)
+        self.assertIn('--force-with-lease=refs/tags/v1:' + 'c' * 40, push)
 
     def test_tailscale_explicit_apply_cannot_bypass_default_branch_guard(self):
         (self.project / 'policy.hujson').write_text('{}')
@@ -433,13 +525,31 @@ class Policy(unittest.TestCase):
         self.assertNotIn('paths', tests['on']['pull_request'] or {})
         required = set(tests['jobs']['checks']['needs'])
         self.assertEqual(set(tests['jobs']) - {'checks'}, required)
-        self.assertIn('scripts/check.py', tests['jobs']['validate']['steps'][-1]['run'])
+        runs = [step.get('run', '') for step in tests['jobs']['validate']['steps']]
+        self.assertTrue(any('scripts/check.py' in run for run in runs))
+        self.assertTrue(any('scripts/check_nvim.py --prepare' in run for run in runs))
         release = workflow('repository-release-please.yml')
         self.assertEqual('validate', release['jobs']['release']['needs'])
         run = step('repository-release-please.yml', 'move')['run']
         self.assertIn('test "$target_sha" = "$TESTED_SHA"', run)
         self.assertIn('test "$published_sha" = "$target_sha"', run)
         self.assertIn('--force-with-lease', run)
+
+    def test_reusable_call_schema_and_literal_input_types(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'callee.yml').write_text('on: {workflow_call: {inputs: {environment: {type: string, required: true}, snapshot: {type: boolean}}}}\njobs:\n  run:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions: {contents: read}\n    steps: [{run: echo okay}]\n')
+            base = {'on': 'push', 'permissions': {'contents': 'read'}, 'jobs': {'run': {'uses': './.github/workflows/callee.yml', 'with': {'environment': 'release', 'snapshot': True}}}}
+            caller = root / 'caller.yml'
+            caller.write_text(yaml.safe_dump(base))
+            self.assertEqual([], self.checks.validate(root))
+            for extra in [{'environment': 'release'}, {'runs-on': 'ubuntu-latest'}, {'with': {'snapshot': True}}, {'with': {'environment': 'release', 'snapshot': 'true'}}, {'with': {'environment': 'release', 'unknown': True}}]:
+                invalid = dict(base, jobs={'run': dict(base['jobs']['run'], **extra)})
+                caller.write_text(yaml.safe_dump(invalid))
+                self.assertTrue(self.checks.validate(root), extra)
+        release = workflow('repository-release-please.yml')['jobs']['release']
+        self.assertNotIn('environment', release)
+        self.assertEqual('release', release['with']['environment'])
 
 
 if __name__ == '__main__':

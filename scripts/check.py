@@ -9,6 +9,8 @@ import sys
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# GitHub's reusable-workflow caller schema; environment belongs inside the callee.
+CALL_JOB_KEYS = {'name', 'uses', 'with', 'secrets', 'strategy', 'needs', 'if', 'concurrency', 'permissions', 'cache-mode'}
 
 
 class WorkflowLoader(yaml.SafeLoader):
@@ -71,10 +73,29 @@ def validate(directory):
                 if 'uses' not in job and ('timeout-minutes' not in job or not (job.get('permissions') or workflow.get('permissions'))):
                     raise ValueError(job_name + ': explicit timeout and permissions required')
                 use = job.get('uses', '')
+                if use and set(job) - CALL_JOB_KEYS:
+                    raise ValueError(job_name + ': unsupported reusable caller keys: ' + ', '.join(sorted(set(job) - CALL_JOB_KEYS)))
                 if use.startswith(('./', '$/')):
                     target = directory / pathlib.Path(use[2:]).name
                     if not target.is_file():
                         raise ValueError(job_name + ': missing local workflow: ' + use)
+                    callee = yaml.load(target.read_text(), Loader=WorkflowLoader)
+                    events = callee.get('on', callee.get(True, {}))
+                    if not isinstance(events, dict) or 'workflow_call' not in events:
+                        raise ValueError(job_name + ': target must support workflow_call')
+                    definitions = (events['workflow_call'] or {}).get('inputs', {})
+                    supplied = job.get('with', {})
+                    if set(supplied) - set(definitions):
+                        raise ValueError(job_name + ': unknown reusable workflow input')
+                    for name, spec in definitions.items():
+                        if spec.get('required') and name not in supplied:
+                            raise ValueError(job_name + ': missing required input ' + name)
+                        if name not in supplied or '${{' in str(supplied[name]):
+                            continue
+                        value = supplied[name]
+                        valid = {'string': isinstance(value, str), 'boolean': isinstance(value, bool), 'number': isinstance(value, (int, float)) and not isinstance(value, bool)}
+                        if not valid.get(spec['type'], False):
+                            raise ValueError(job_name + ': invalid input type for ' + name)
                     granted = job.get('permissions', workflow.get('permissions', {}))
                     levels = {'none': 0, 'read': 1, 'write': 2}
                     for key, minimum in call_permissions(target).items():

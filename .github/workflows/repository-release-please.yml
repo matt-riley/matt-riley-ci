@@ -55,25 +55,37 @@ jobs:
         # shellcheck disable=SC2016
         # The helper expands PUSH_TOKEN only when git invokes it.
         set -euo pipefail
+        authenticated_git() {
+          # shellcheck disable=SC2016
+          git -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' "$@"
+        }
         [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::Only stable semantic-version tags may move a major tag'; exit 1; }
         major_tag="${TAG_NAME%%.*}"
-        git fetch --force --tags origin
+        authenticated_git fetch --force --tags origin
         target_sha="$(git rev-list -n 1 "refs/tags/$TAG_NAME")"
         test "$target_sha" = "$TESTED_SHA" || { echo '::error::Release tag is not the revision validated by this run. Run the repair workflow on that exact tag.'; exit 1; }
-        current_sha="$(git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' | tail -n 1)"
-        current_object="$(git ls-remote --tags origin "refs/tags/$major_tag" | cut -f1)"
+        current_refs="$(authenticated_git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}")"
+        current_object=''
+        current_sha=''
+        while IFS=$'\t' read -r sha ref; do
+          case "$ref" in
+            "refs/tags/$major_tag") current_object="$sha";;
+            "refs/tags/$major_tag^{}") current_sha="$sha";;
+          esac
+        done <<< "$current_refs"
+        current_sha="${current_sha:-$current_object}"
         if [ "$current_sha" != "$target_sha" ]; then
           if [ -n "$current_sha" ]; then
             git merge-base --is-ancestor "$current_sha" "$target_sha" || { echo '::error::Refusing to move a major tag backwards or to unrelated history'; exit 1; }
           fi
           git tag -f "$major_tag" "$target_sha"
           # shellcheck disable=SC2016
-          if ! git -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' push origin "refs/tags/$major_tag" --force-with-lease="refs/tags/$major_tag:$current_object"; then
+          if ! authenticated_git push origin "refs/tags/$major_tag" --force-with-lease="refs/tags/$major_tag:$current_object"; then
             echo '::error title=Cannot publish major tag::Push failed. RELEASE_TAG_TOKEN needs contents and workflows write access; check its permissions, expiry and tag rules.' >&2
             exit 1
           fi
         fi
-        published_sha="$(git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' | tail -n 1)"
+        published_sha="$(authenticated_git ls-remote --tags origin "refs/tags/$major_tag" "refs/tags/$major_tag^{}" | sed -n 's/^\([0-9a-f]\{40\}\).*/\1/p' | tail -n 1)"
         test "$published_sha" = "$target_sha" || { echo '::error::Remote major tag does not point to the tested release'; exit 1; }
         printf 'target_sha=%s\nmajor_tag=%s\npublished=true\n' "$target_sha" "$major_tag" >> "$GITHUB_OUTPUT"
       id: move
