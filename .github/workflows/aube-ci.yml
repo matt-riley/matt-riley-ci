@@ -89,7 +89,7 @@ name: Aube CI
         default: 7
     secrets:
       node_auth_token:
-        description: Optional registry auth token exposed to aube commands as NODE_AUTH_TOKEN
+        description: Optional registry token override; NODE_AUTH_TOKEN defaults to the GitHub token with packages read permission
         required: false
 jobs:
   ci:
@@ -172,7 +172,7 @@ jobs:
       id: install
       env:
         INSTALL_COMMAND: ${{ inputs.install-command }}
-        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
       run: |
         if [ -n "$INSTALL_COMMAND" ]; then
           bash --noprofile --norc -eo pipefail -c "$INSTALL_COMMAND"
@@ -193,7 +193,7 @@ jobs:
       if: ${{ inputs.run-lint }}
       env:
         SCRIPT_NAME: lint
-        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
       run: |
         aube run "$SCRIPT_NAME"
       shell: bash
@@ -203,7 +203,7 @@ jobs:
       env:
         SCRIPT_NAME: build
         BUILD_ENV: ${{ inputs.build-env }}
-        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
       run: |
         while IFS= read -r line || [ -n "$line" ]; do
           [ -z "$line" ] && continue
@@ -219,7 +219,7 @@ jobs:
       if: ${{ inputs.run-test }}
       env:
         SCRIPT_NAME: ${{ inputs.test-script }}
-        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token }}
+        NODE_AUTH_TOKEN: ${{ secrets.node_auth_token || github.token }}
       run: |
         aube run "$SCRIPT_NAME"
       shell: bash

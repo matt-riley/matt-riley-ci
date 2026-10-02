@@ -104,8 +104,23 @@ jobs:
     permissions:
       contents: read
     steps:
+    - name: Resolve publishing credential
+      id: auth
+      env:
+        HAS_TOKEN: ${{ secrets.homebrew-tap-token != '' }}
+        REQUIRED: ${{ inputs.fail-if-missing-token }}
+      run: |
+        if [ "$HAS_TOKEN" != true ]; then
+          [ "$REQUIRED" != true ] || { echo '::error::homebrew-tap-token is required'; exit 1; }
+          echo 'status=skipped' >> "$GITHUB_OUTPUT"
+          echo '::warning::Tap update skipped: no publishing token'
+        else
+          echo 'status=ready' >> "$GITHUB_OUTPUT"
+        fi
+      shell: bash
     - name: Generate and validate formula
       id: formula
+      if: ${{ steps.auth.outputs.status == 'ready' }}
       env:
         GH_TOKEN: ${{ secrets.github-token || github.token }}
         SOURCE_REPO: ${{ inputs.source-repo != '' && inputs.source-repo || github.repository }}
@@ -152,7 +167,10 @@ jobs:
                 if not asset: continue
                 if pathlib.PurePosixPath(asset).name != asset or not re.fullmatch(r'[A-Za-z0-9_.+-]+', asset): raise SystemExit('Invalid asset filename')
                 subprocess.run(['gh', 'release', 'download', e['TAG'], '--repo', e['SOURCE_REPO'], '--pattern', asset, '--dir', str(assets), '--clobber'], check=True)
-                digest = hashlib.sha256((assets / asset).read_bytes()).hexdigest()
+                checksum = hashlib.sha256()
+                with (assets / asset).open('rb') as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''): checksum.update(chunk)
+                digest = checksum.hexdigest()
                 url = 'https://github.com/' + e['SOURCE_REPO'] + '/releases/download/' + urllib.parse.quote(e['TAG'], safe='') + '/' + urllib.parse.quote(asset, safe='')
                 blocks += ['    on_' + architecture + ' do', '      url ' + ruby(url), '      sha256 ' + ruby(digest), '    end']
                 count += 1
@@ -163,20 +181,6 @@ jobs:
         formula.write_text('\n'.join(lines) + '\n')
         subprocess.run(['ruby', '-c', str(formula)], check=True)
         PY
-      shell: bash
-    - name: Resolve publishing credential
-      id: auth
-      env:
-        HAS_TOKEN: ${{ secrets.homebrew-tap-token != '' }}
-        REQUIRED: ${{ inputs.fail-if-missing-token }}
-      run: |
-        if [ "$HAS_TOKEN" != true ]; then
-          [ "$REQUIRED" != true ] || { echo '::error::homebrew-tap-token is required'; exit 1; }
-          echo 'status=skipped' >> "$GITHUB_OUTPUT"
-          echo '::warning::Tap update skipped: no publishing token'
-        else
-          echo 'status=ready' >> "$GITHUB_OUTPUT"
-        fi
       shell: bash
     - name: Checkout tap
       if: ${{ steps.auth.outputs.status == 'ready' }}

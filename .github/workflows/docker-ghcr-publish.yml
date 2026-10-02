@@ -143,7 +143,8 @@ jobs:
         import hashlib, os, re
         e = os.environ
         image = e['IMAGE_NAME'] or 'ghcr.io/' + e['GITHUB_REPOSITORY'].lower()
-        if not re.fullmatch(r'ghcr\.io/[a-z0-9][a-z0-9._/-]+', image): raise SystemExit('image-name must be a valid lower-case GHCR image')
+        component = r'[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*'
+        if not re.fullmatch(r'ghcr\.io/' + component + r'(?:/' + component + r')+', image): raise SystemExit('image-name must be a valid lower-case GHCR owner/image path')
         platforms = e['PLATFORMS'].split(',')
         if not platforms or any(not re.fullmatch(r'linux/(amd64|arm64|arm/v7)', p) for p in platforms): raise SystemExit('Unsupported platform')
         if e['LOAD'] == 'true' and (len(platforms) != 1 or e['PUSH'] == 'true'): raise SystemExit('load requires one platform and push:false')

@@ -69,7 +69,7 @@ name: Universal CI
         required: false
         default: ci
       cache:
-        description: Restore dependency caches
+        description: Restore dependency/build/tool caches; disable for private dependencies
         type: boolean
         required: false
         default: true
@@ -200,7 +200,8 @@ jobs:
       uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea
       with:
         working_directory: ${{ inputs.working-directory }}
-        cache_save: ${{ inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        cache: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
+        cache_save: ${{ inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
           && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         version: ${{ inputs.mise-version }}
         install_args: ${{ inputs.install-tools }}
@@ -266,7 +267,7 @@ jobs:
       shell: bash
     - name: Restore dependencies
       id: dependencies
-      if: ${{ inputs.cache && steps.cache-metadata.outputs.paths != '' }}
+      if: ${{ inputs.cache && steps.cache-metadata.outputs.paths != '' && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.cache-metadata.outputs.paths }}
@@ -278,7 +279,7 @@ jobs:
           steps.cache-metadata.outputs.tools }}-
     - name: Restore Go build cache
       id: go-build-cache
-      if: ${{ inputs.cache && steps.cache-metadata.outputs.build_cache != '' }}
+      if: ${{ inputs.cache && steps.cache-metadata.outputs.build_cache != '' && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.cache-metadata.outputs.build_cache }}

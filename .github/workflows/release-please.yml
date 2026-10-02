@@ -109,5 +109,5 @@ jobs:
       inputs.target-branch != '' && inputs.target-branch || github.event.repository.default_branch) }}
     environment: ${{ inputs.environment }}
     concurrency:
-      group: release-please:${{ github.repository }}:${{ inputs.target-branch }}
+      group: release-please:${{ github.repository }}:${{ inputs.target-branch != '' && inputs.target-branch || github.event.repository.default_branch }}
       cancel-in-progress: false

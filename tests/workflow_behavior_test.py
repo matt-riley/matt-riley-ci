@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 import yaml
@@ -20,6 +21,21 @@ def workflow(name):
 
 def step(name, identity):
     return next(s for job in workflow(name)['jobs'].values() for s in job.get('steps', []) if s.get('id', s.get('name')) == identity)
+
+
+def expression(value, event='push', ref='refs/heads/main', source='owner/project', **inputs):
+    """Evaluate the simple boolean/string GitHub expressions used by these guards."""
+    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref,
+        event=SimpleNamespace(repository=SimpleNamespace(default_branch='main'),
+            pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=source)))))
+    def evaluate(match):
+        code = match.group(1).replace('&&', 'and').replace('||', 'or')
+        code = re.sub(r'!(?!=)', 'not ', code)
+        code = re.sub(r'\binputs\.([A-Za-z0-9_-]+)', lambda item: "inputs[" + repr(item.group(1)) + "]", code)
+        code = code.replace('steps.cache-metadata', 'steps.cache_metadata')
+        steps = SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
+        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'format': lambda text, *args: text.format(*args)}))
+    return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', evaluate, value)
 
 
 class Scripts(unittest.TestCase):
@@ -318,8 +334,8 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         for identity, args in [('install', ['ci']), ('lint', ['run', 'lint']), ('build', ['run', 'build']), ('test', ['run', 'custom-test'])]:
             with self.subTest(step=identity):
                 config = step('aube-ci.yml', identity)
-                self.assertEqual('${{ secrets.node_auth_token }}', config['env'].get('NODE_AUTH_TOKEN'))
-                for token in ['', 'fake-registry-token']:
+                self.assertEqual('${{ secrets.node_auth_token || github.token }}', config['env'].get('NODE_AUTH_TOKEN'))
+                for token in ['fake-github-token', 'fake-registry-token']:
                     result = self.run_step('aube-ci.yml', identity, SCRIPT_NAME='custom-test' if identity == 'test' else identity, BUILD_ENV='', INSTALL_COMMAND='', NODE_AUTH_TOKEN=token)
                     self.okay(result)
                     self.assertEqual([args, token], json.loads(result.stdout))
@@ -352,6 +368,11 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertIn('value=latest,enable=false', Path(self.env['GITHUB_OUTPUT']).read_text())
         for changes in [dict(GITHUB_EVENT_NAME='pull_request', PUSH='true'), dict(PLATFORMS='linux/amd64,linux/arm64', LOAD='true'), dict(TAG='injected,enable=true')]:
             self.assertNotEqual(0, self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(**changes)).returncode)
+        for image in ['ghcr.io/owner//image', 'ghcr.io/owner/image/', 'ghcr.io/image', 'ghcr.io/-owner/image', 'ghcr.io/owner/image-', 'ghcr.io/owner/im..age']:
+            with self.subTest(image=image):
+                self.assertNotEqual(0, self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(IMAGE_NAME=image)).returncode)
+        for image in ['ghcr.io/owner/image', 'ghcr.io/owner/nested/image', 'ghcr.io/owner/image__name']:
+            self.okay(self.run_step('docker-ghcr-publish.yml', 'image', **self.docker_env(IMAGE_NAME=image)))
         jobs = workflow('docker-ghcr-publish.yml')['jobs']
         self.assertEqual({'contents': 'read'}, jobs['build']['permissions'])
         self.assertEqual('write', jobs['publish']['permissions']['packages'])
@@ -408,6 +429,47 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, CLASS_NAME='Tool;raise')).returncode)
         for change in [dict(GITHUB_REF='refs/tags/v9.9.9'), dict(BINARY='.'), dict(BINARY='./')]:
             self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, **change)).returncode)
+
+    def test_homebrew_optional_credentials_skip_before_asset_download(self):
+        self.okay(self.run_step('homebrew-formula.yml', 'auth', HAS_TOKEN='false', REQUIRED='false'))
+        self.assertIn('status=skipped', Path(self.env['GITHUB_OUTPUT']).read_text())
+        steps = workflow('homebrew-formula.yml')['jobs']['update-formula']['steps']
+        ids = [item.get('id') for item in steps]
+        self.assertLess(ids.index('auth'), ids.index('formula'))
+        self.assertEqual("${{ steps.auth.outputs.status == 'ready' }}", step('homebrew-formula.yml', 'formula')['if'])
+        self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'auth', HAS_TOKEN='false', REQUIRED='true').returncode)
+
+    def test_fork_pull_requests_never_restore_dependency_or_build_caches(self):
+        for name in ['ci.yml', 'go-ci.yml', 'go-lint.yml', 'go-security.yml', 'go-goreleaser.yml']:
+            for item in (item for job in workflow(name)['jobs'].values() for item in job['steps']):
+                if not item.get('name', '').startswith(('Restore dependencies', 'Restore Go module cache', 'Restore Go build cache')):
+                    continue
+                for event, source, allowed in [('push', '', True), ('pull_request', 'owner/project', True), ('pull_request', 'fork/project', False), ('pull_request_target', 'fork/project', False)]:
+                    with self.subTest(workflow=name, step=item['name'], event=event, source=source):
+                        result = expression(item.get('if', '${{ true }}'), event=event, source=source, cache=True)
+                        # Cache path existence is independent of the source-authority guard.
+                        self.assertEqual(str(allowed), result)
+                        self.assertEqual('False', expression(item['if'], event=event, source=source, cache=False))
+                self.assertTrue(workflow(name)['on']['workflow_call']['inputs']['cache']['default'])
+            for job in workflow(name)['jobs'].values():
+                for item in job['steps']:
+                    if item.get('uses', '').startswith('actions/cache/save@'):
+                        self.assertIn('inputs.cache && inputs.save-cache', item['if'])
+        for name, identity, setting, disabled in [('ci.yml', 'Install mise', 'cache', 'False'), ('go-lint.yml', 'lint', 'skip-cache', 'True')]:
+            self.assertEqual(disabled, expression(step(name, identity)['with'][setting], event='pull_request', source='fork/project', cache=True))
+            self.assertEqual(disabled, expression(step(name, identity)['with'][setting], cache=False))
+
+    def test_equivalent_release_targets_and_acl_actions_share_the_correct_queues(self):
+        release = workflow('release-please.yml')['jobs']['release-please']['concurrency']['group']
+        self.assertEqual(expression(release, **{'target-branch': ''}), expression(release, **{'target-branch': 'main'}))
+        acl = workflow('tailscale-acl.yml')['jobs']['acl']['concurrency']['group']
+        auto_apply = expression(acl, action='', tailnet='example')
+        explicit_apply = expression(acl, action='apply', tailnet='example')
+        pr_test = expression(acl, event='pull_request', ref='refs/pull/1/merge', action='', tailnet='example')
+        explicit_test = expression(acl, action='test', tailnet='example')
+        self.assertEqual(auto_apply, explicit_apply)
+        self.assertEqual(pr_test, explicit_test)
+        self.assertNotEqual(auto_apply, pr_test)
 
     def test_lockfile_sync_rejects_directories_and_commits_only_the_lockfile(self):
         for lockfile in ['.', '..', 'dir/name', '']:

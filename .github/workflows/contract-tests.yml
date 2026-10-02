@@ -134,6 +134,16 @@ jobs:
     uses: ./.github/workflows/nvim-tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
       working-directory: fixtures/nvim
+  homebrew-skip:
+    uses: ./.github/workflows/homebrew-formula.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
+    with:
+      tag: v0.0.0
+      formula-name: contract-fixture
+      class-name: ContractFixture
+      desc: No-credential skip fixture
+      homepage: https://example.test
+      binary: contract-fixture
+      fail-if-missing-token: false
   artifacts:
     needs:
     - node
@@ -172,6 +182,7 @@ jobs:
     - nvim-format
     - nvim-lint
     - nvim-tests
+    - homebrew-skip
     - artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -188,6 +199,7 @@ jobs:
         import json, os
         results = json.loads(os.environ['RESULTS'])
         if any(job['result'] != 'success' for job in results.values()): raise SystemExit('A required check failed, was cancelled, or skipped')
+        if results['homebrew-skip']['outputs'].get('status') != 'skipped': raise SystemExit('Missing optional Homebrew credentials must report skipped')
         with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('sha=' + os.environ['SHA'] + '\n')
         PY
       shell: bash

@@ -28,7 +28,7 @@ Aube CI.
 
 ### Secrets
 
-- `node_auth_token`: Optional registry auth token exposed to aube commands as NODE_AUTH_TOKEN.
+- `node_auth_token`: Optional registry token override; NODE_AUTH_TOKEN defaults to the GitHub token with packages read permission.
 
 ### Outputs
 
@@ -57,7 +57,7 @@ Universal CI.
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | working-directory | string | False | . | Repository directory containing mise configuration and tasks; all task and cache discovery uses this directory |
 | task | string | False | ci | Task to run when no phase flags are enabled; empty is invalid |
-| cache | boolean | False | True | Restore dependency caches |
+| cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
 | cache-paths | string | False |  | Additional cache paths relative to working-directory, one per line; absolute paths and ~ are supported |
 | cache-dependency-path | string | False |  | Optional dependency-file glob, relative to repository root, included in cache identity |
 | artifact-path | string | False |  | Build output paths relative to working-directory; requires artifact-name |
@@ -177,6 +177,7 @@ Go CI.
 | artifact-retention-days | number | False | 7 | Coverage/diagnostic retention |
 | failure-artifact-path | string | False |  | Optional diagnostics relative to working-directory |
 | failure-artifact-name | string | False | go-diagnostics | Unique failure artifact name |
+| cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
 | save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
 
 ### Secrets
@@ -209,6 +210,7 @@ Go GoReleaser.
 | tap-app-id | string | False |  | Optional GitHub App ID for the tap; paired with private-key |
 | environment | string | False | release | Protected release environment |
 | snapshot | boolean | False | False | Validate/build a snapshot without publishing |
+| cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
 | save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
 
 ### Secrets
@@ -239,6 +241,7 @@ Go Lint.
 | golangci-args | string | False | --timeout=5m | Additional golangci-lint args |
 | continue-on-error | boolean | False | False | Continue if golangci-lint reports issues |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
+| cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
 | save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
 
 ### Secrets
@@ -264,6 +267,7 @@ Go Security.
 | working-directory | string | False | . | Directory to run govulncheck in |
 | govulncheck-version | string | False | v1.1.4 | govulncheck module version (e.g. v1.1.4; set latest to float) |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
+| cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
 | save-cache | boolean | False | False | Save Go caches on a successful trusted default-branch run; designate one writer per pipeline |
 
 ### Secrets
