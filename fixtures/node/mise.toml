@@ -1,0 +1,16 @@
+[tools]
+node = "24"
+
+[tasks.install]
+run = "npm ci && node -e \"require('fs').appendFileSync('install-count.txt', 'install\\n')\""
+
+[tasks.test]
+depends = ["install"]
+run = "npm test"
+
+[tasks.build]
+depends = ["install"]
+run = "npm run build"
+
+[tasks.ci]
+depends = ["test", "build"]

@@ -1,219 +1,268 @@
 name: Docker GHCR Publish
-
-on:
+'on':
   workflow_call:
     inputs:
       runner:
-        description: 'Runner label'
+        description: Runner label
         required: false
-        default: 'ubuntu-latest'
+        default: ubuntu-latest
         type: string
       context:
-        description: 'Docker build context'
+        description: Docker build context
         required: false
-        default: '.'
+        default: .
         type: string
       image-name:
-        description: 'Full image name (for example ghcr.io/owner/repo)'
+        description: Full image name (for example ghcr.io/owner/repo)
         required: false
         default: ''
         type: string
       tag-name:
-        description: 'Release tag (semver). Empty value publishes SHA tag only.'
+        description: Release tag (semver), matching the triggering tag ref when publishing. Empty publishes SHA tag only.
         required: false
         default: ''
         type: string
       dockerfile:
-        description: 'Path to Dockerfile (optional)'
+        description: Path to Dockerfile (optional)
         required: false
         default: ''
         type: string
       build-args:
-        description: 'Custom build args for docker/build-push-action (multiline)'
+        description: Custom build args for docker/build-push-action (multiline)
         required: false
         default: ''
         type: string
       metadata-tags:
-        description: 'Custom docker/metadata-action tags rules (multiline). Empty uses defaults.'
+        description: Custom docker/metadata-action tags rules (multiline). Empty uses defaults.
         required: false
         default: ''
         type: string
       metadata-flavor:
-        description: 'Custom docker/metadata-action flavor rules (multiline).'
+        description: Custom docker/metadata-action flavor rules (multiline).
         required: false
         default: ''
         type: string
       platforms:
-        description: 'Build platforms'
+        description: Build platforms
         required: false
-        default: 'linux/amd64,linux/arm64'
+        default: linux/amd64
         type: string
       checkout-fetch-depth:
-        description: 'Fetch depth for actions/checkout'
+        description: Fetch depth for actions/checkout
         required: false
         default: 1
         type: number
       push:
-        description: 'Push image to registry'
+        description: Push image to registry
         required: false
         default: true
         type: boolean
-      provenance:
-        description: 'Enable provenance attestation in docker/build-push-action'
+      cache:
+        description: Restore and export BuildKit caches; disable for private source or dependencies
+        required: false
+        default: true
+        type: boolean
+      save-cache:
+        description: Allow build-only cache writes on default-branch push/manual runs; designate one writer
         required: false
         default: false
+        type: boolean
+      provenance:
+        description: Enable provenance attestation in docker/build-push-action
+        required: false
+        default: true
         type: boolean
       sbom:
-        description: 'Enable SBOM generation in docker/build-push-action'
+        description: Enable SBOM generation in docker/build-push-action
         required: false
-        default: false
+        default: true
         type: boolean
-      cancel-in-progress:
-        description: 'Cancel previous in-progress runs for same ref'
-        required: false
-        default: false
-        type: boolean
-      concurrency-suffix:
-        description: 'Optional suffix to distinguish concurrency groups when this reusable workflow is called multiple times in one workflow'
-        required: false
-        default: ''
-        type: string
       timeout-minutes:
-        description: 'Job timeout in minutes'
+        description: Job timeout in minutes
         required: false
         default: 30
         type: number
+      load:
+        description: Load a single-platform result into the runner Docker daemon; disables unsupported attestations
+        type: boolean
+        required: false
+        default: false
+      outputs:
+        description: Optional Buildx exporter configuration (for example type=oci,dest=/tmp/image.tar)
+        type: string
+        required: false
+        default: ''
+      cache-scope:
+        description: Optional stable cache namespace; empty derives image/context/Dockerfile/platforms
+        type: string
+        required: false
+        default: ''
+      environment:
+        description: Optional protected GitHub environment
+        type: string
+        required: false
+        default: ''
     secrets:
       token:
-        description: 'Token with packages:write'
-        required: true
+        description: Optional packages:write token for push; defaults to github.token. Unused for push:false.
+        required: false
     outputs:
       image_name:
-        description: 'Resolved image name'
-        value: ${{ jobs.docker-publish.outputs.image_name }}
+        description: Resolved image name
+        value: ${{ inputs.push && jobs.publish.outputs.image_name || jobs.build.outputs.image_name }}
       tags:
-        description: 'Resolved image tags'
-        value: ${{ jobs.docker-publish.outputs.tags }}
+        description: Resolved image tags
+        value: ${{ inputs.push && jobs.publish.outputs.tags || jobs.build.outputs.tags }}
       labels:
-        description: 'Resolved image labels'
-        value: ${{ jobs.docker-publish.outputs.labels }}
+        description: Resolved image labels
+        value: ${{ inputs.push && jobs.publish.outputs.labels || jobs.build.outputs.labels }}
       digest:
-        description: 'Published image digest'
-        value: ${{ jobs.docker-publish.outputs.digest }}
-
+        description: Build result digest; available in GHCR only when status is published
+        value: ${{ inputs.push && jobs.publish.outputs.digest || jobs.build.outputs.digest }}
 jobs:
-  docker-publish:
+  build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
+    permissions:
+      contents: read
+    outputs: &id001
+      image_name: ${{ steps.image.outputs.name }}
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps: &id002
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        fetch-depth: ${{ inputs.checkout-fetch-depth }}
+        persist-credentials: false
+    - name: Resolve image and build settings
+      id: image
+      env:
+        IMAGE_NAME: ${{ inputs.image-name }}
+        CONTEXT: ${{ inputs.context }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        PLATFORMS: ${{ inputs.platforms }}
+        CACHE_SCOPE: ${{ inputs.cache-scope }}
+        TAG: ${{ inputs.tag-name }}
+        PUSH: ${{ inputs.push }}
+        LOAD: ${{ inputs.load }}
+        OUTPUTS: ${{ inputs.outputs }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        python3 - <<'PY'
+        import csv, hashlib, os, re
+        e = os.environ
+        image = e['IMAGE_NAME'] or 'ghcr.io/' + e['GITHUB_REPOSITORY'].lower()
+        component = r'[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*'
+        if not re.fullmatch(r'ghcr\.io/' + component + r'(?:/' + component + r')+', image): raise SystemExit('image-name must be a valid lower-case GHCR owner/image path')
+        platforms = e['PLATFORMS'].split(',')
+        if not platforms or any(not re.fullmatch(r'linux/(amd64|arm64|arm/v7)', p) for p in platforms): raise SystemExit('Unsupported platform')
+        if e['LOAD'] == 'true' and (len(platforms) != 1 or e['PUSH'] == 'true'): raise SystemExit('load requires one platform and push:false')
+        docker_exporter = any('type=docker' in [field.strip() for field in row] for line in e['OUTPUTS'].splitlines() if line.strip() for row in csv.reader([line], skipinitialspace=True))
+        if docker_exporter and len(platforms) != 1: raise SystemExit('The Docker exporter requires one platform')
+        trusted = e['GITHUB_EVENT_NAME'] in ['push', 'workflow_dispatch', 'release'] and (e['GITHUB_REF'].startswith('refs/tags/') or e['GITHUB_REF'] == 'refs/heads/' + e['DEFAULT_BRANCH'])
+        if e['PUSH'] == 'true' and not trusted: raise SystemExit('Publishing requires a trusted default-branch or tag event')
+        tag = e['TAG']
+        number = r'(?:0|[1-9][0-9]*)'
+        prerelease = r'(?:' + number + r'|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+        version = r'v?' + number + r'\.' + number + r'\.' + number + r'(?:-' + prerelease + r'(?:\.' + prerelease + r')*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
+        if tag and not re.fullmatch(version, tag): raise SystemExit('tag-name must be semver')
+        if tag and e['PUSH'] == 'true' and e['GITHUB_REF'] != 'refs/tags/' + tag: raise SystemExit('tag-name must match the triggering release ref')
+        scope = e['CACHE_SCOPE'] or hashlib.sha256('\n'.join([image, e['CONTEXT'], e['DOCKERFILE'], e['PLATFORMS']]).encode()).hexdigest()[:24]
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+', scope): raise SystemExit('Invalid cache-scope')
+        host = 'amd64' if e['RUNNER_ARCH'] == 'X64' else 'arm64'
+        emulate = any(p != 'linux/' + host for p in platforms)
+        with open(e['GITHUB_OUTPUT'], 'a') as out:
+            out.write(f'name={image}\nscope={scope}\nstable={str(bool(tag) and "-" not in tag.split("+")[0]).lower()}\nemulate={str(emulate).lower()}\ndocker_exporter={str(docker_exporter).lower()}\n')
+        PY
+      shell: bash
+    - name: Resolve metadata rules
+      id: rules
+      env:
+        CUSTOM_TAGS: ${{ inputs.metadata-tags }}
+        TAG: ${{ inputs.tag-name }}
+        STABLE: ${{ steps.image.outputs.stable }}
+      run: |
+        python3 - <<'PY'
+        import os, uuid
+        e = os.environ
+        tags = e['CUSTOM_TAGS']
+        if not tags:
+            tags = 'type=sha,format=short' if not e['TAG'] else '\n'.join([
+                'type=semver,pattern={{raw}},value=' + e['TAG'],
+                'type=semver,pattern={{major}}.{{minor}},value=' + e['TAG'],
+                'type=semver,pattern={{major}},value=' + e['TAG'],
+                'type=raw,value=latest,enable=' + e['STABLE']])
+        delimiter = 'TAGS_' + uuid.uuid4().hex
+        with open(e['GITHUB_OUTPUT'], 'a') as out: out.write('tags<<' + delimiter + '\n' + tags + '\n' + delimiter + '\n')
+        PY
+      shell: bash
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8
+      if: ${{ steps.image.outputs.emulate == 'true' }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+    - name: Log in to GHCR
+      uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.token || github.token }}
+      if: ${{ inputs.push }}
+    - name: Extract Docker metadata
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
+      with:
+        images: ${{ steps.image.outputs.name }}
+        tags: ${{ steps.rules.outputs.tags }}
+        flavor: ${{ inputs.metadata-flavor != '' && inputs.metadata-flavor || 'latest=false' }}
+    - name: Build image
+      id: build
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+      with:
+        context: ${{ inputs.context }}
+        platforms: ${{ inputs.platforms }}
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) && format('type=gha,scope={0}', steps.image.outputs.scope) || '' }}
+        cache-to: ${{ inputs.cache && (inputs.push || (inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) && format('type=gha,mode=max,scope={0}', steps.image.outputs.scope) || '' }}
+        provenance: ${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.provenance }}
+        sbom: ${{ !inputs.load && steps.image.outputs.docker_exporter != 'true' && inputs.sbom }}
+        file: ${{ inputs.dockerfile }}
+        load: ${{ inputs.load }}
+        outputs: ${{ inputs.outputs }}
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Docker build
+        FIELD_0: ${{ steps.build.outcome }}
+        FIELD_1: ${{ steps.build.outputs.digest }}
+        FIELD_2: ${{ steps.meta.outputs.tags }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Build: %s\n" "$FIELD_0"
+          printf -- "- Digest: %s\n" "$FIELD_1"
+          printf -- "- Tags: %s\n" "$FIELD_2"
+        } >> "$GITHUB_STEP_SUMMARY"
+    if: ${{ !inputs.push }}
+  publish:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
       packages: write
-    outputs:
-      image_name: ${{ steps.image.outputs.name }}
-      tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
-      labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
-      digest: ${{ steps.build-custom.outputs.digest != '' && steps.build-custom.outputs.digest || steps.build-default.outputs.digest }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          fetch-depth: ${{ inputs.checkout-fetch-depth }}
-
-      - name: Resolve image name
-        id: image
-        run: |
-          if [ -n "${{ inputs.image-name }}" ]; then
-            echo "name=${{ inputs.image-name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.token }}
-
-      - name: Extract Docker metadata (default)
-        if: ${{ inputs.metadata-tags == '' }}
-        id: meta-default
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
-        with:
-          images: ${{ steps.image.outputs.name }}
-          tags: |
-            type=semver,pattern={{raw}},value=${{ inputs.tag-name }},enable=${{ inputs.tag-name != '' }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag-name }},enable=${{ inputs.tag-name != '' }}
-            type=semver,pattern={{major}},value=${{ inputs.tag-name }},enable=${{ inputs.tag-name != '' }}
-            type=raw,value=latest,enable=${{ inputs.tag-name != '' }}
-            type=sha,format=short,enable=${{ inputs.tag-name == '' }}
-
-      - name: Extract Docker metadata (custom)
-        if: ${{ inputs.metadata-tags != '' }}
-        id: meta-custom
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
-        with:
-          images: ${{ steps.image.outputs.name }}
-          tags: ${{ inputs.metadata-tags }}
-          flavor: ${{ inputs.metadata-flavor }}
-
-      - name: Build and push image (default Dockerfile)
-        if: ${{ inputs.dockerfile == '' }}
-        id: build-default
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: ${{ inputs.context }}
-          platforms: ${{ inputs.platforms }}
-          push: ${{ inputs.push }}
-          tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
-          labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
-          build-args: ${{ inputs.build-args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: ${{ inputs.provenance }}
-          sbom: ${{ inputs.sbom }}
-
-      - name: Build and push image (custom Dockerfile)
-        if: ${{ inputs.dockerfile != '' }}
-        id: build-custom
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: ${{ inputs.context }}
-          file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
-          push: ${{ inputs.push }}
-          tags: ${{ steps.meta-custom.outputs.tags != '' && steps.meta-custom.outputs.tags || steps.meta-default.outputs.tags }}
-          labels: ${{ steps.meta-custom.outputs.labels != '' && steps.meta-custom.outputs.labels || steps.meta-default.outputs.labels }}
-          build-args: ${{ inputs.build-args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: ${{ inputs.provenance }}
-          sbom: ${{ inputs.sbom }}
-
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Docker GHCR publish summary"
-            echo "- image: \`${{ steps.image.outputs.name }}\`"
-            echo "- context: \`${{ inputs.context }}\`"
-            echo "- dockerfile: \`${{ inputs.dockerfile }}\`"
-            echo "- platforms: \`${{ inputs.platforms }}\`"
-            echo "- checkout-fetch-depth: \`${{ inputs.checkout-fetch-depth }}\`"
-            echo "- tag-name: \`${{ inputs.tag-name }}\`"
-            echo "- custom metadata tags: \`${{ inputs.metadata-tags != '' }}\`"
-            echo "- build args configured: \`${{ inputs.build-args != '' }}\`"
-            echo "- provenance: \`${{ inputs.provenance }}\`"
-            echo "- sbom: \`${{ inputs.sbom }}\`"
-            echo "- push: \`${{ inputs.push }}\`"
-            echo "- digest: \`${{ steps.build-custom.outputs.digest != '' && steps.build-custom.outputs.digest || steps.build-default.outputs.digest }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    outputs: *id001
+    steps: *id002
+    environment: ${{ inputs.environment }}
+    if: ${{ inputs.push }}
+    concurrency:
+      group: docker-publish:${{ github.repository }}:${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/{0}', github.repository) }}
+      queue: max
+      cancel-in-progress: false

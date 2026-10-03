@@ -1,3 +1,8 @@
 .fallow/
 .worktrees/
 __pycache__/
+.venv/
+**/node_modules/
+**/dist/
+**/coverage.out
+**/install-count.txt

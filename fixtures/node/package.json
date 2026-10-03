@@ -5,6 +5,6 @@
   "scripts": {
     "test": "node -e \"console.log('node-fixture-ok')\"",
     "test:ci": "node -e \"if (process.env.API_ENDPOINT_URL) process.exit(1); console.log('node-fixture-ci-ok')\"",
-    "build": "node -e \"if (!process.env.API_ENDPOINT_URL) process.exit(1); console.log(process.env.API_ENDPOINT_URL)\""
+    "build": "node -e \"if (!process.env.API_ENDPOINT_URL) process.exit(1); const fs=require('fs'); fs.mkdirSync('dist',{recursive:true}); fs.writeFileSync('dist/index.html', process.env.API_ENDPOINT_URL)\""
   }
 }

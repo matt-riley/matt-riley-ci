@@ -1,61 +1,180 @@
 name: Neovim Tests (mini.test)
-
-on:
+'on':
   workflow_call:
     inputs:
       neovim-version:
-        description: "Neovim version to install (apt package)"
+        description: Exact Neovim release tag, or nightly for intentional compatibility testing
         required: false
-        default: "neovim"
+        default: v0.12.5
+        type: string
+      neovim-sha256:
+        description: Reviewed SHA-256 override takes precedence over the default pin; required for nondefault stable releases. Empty nightly uses metadata.
+        required: false
+        default: ''
         type: string
       mini-version:
-        description: "mini.nvim tag or branch to install for tests"
+        description: 'Immutable mini.nvim commit SHA (default: v0.17.0)'
         required: false
-        default: "v0.17.0"
+        default: a995fe9cd4193fb492b5df69175a351a74b3d36b
         type: string
       runner:
-        description: "Runner label"
+        description: Runner label; self-hosted runners must provision gh, Python 3 and archive tools
         required: false
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       timeout-minutes:
-        description: "Job timeout in minutes"
+        description: Job timeout in minutes
         required: false
         default: 15
         type: number
-      cancel-in-progress:
-        description: "Cancel previous in-progress runs for same ref"
+      working-directory:
+        description: Directory containing plugin and tests
+        type: string
         required: false
-        default: false
-        type: boolean
-
+        default: .
+      minimal-init:
+        description: Neovim init file relative to working-directory
+        type: string
+        required: false
+        default: tests/minimal_init.lua
+      test-directory:
+        description: Directory to collect test*.lua files from
+        type: string
+        required: false
+        default: tests
 jobs:
   tests:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Install Neovim
-        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.neovim-version }}
-      - name: Fetch mini.nvim
-        run: git clone --branch "${{ inputs.mini-version }}" --depth 1 https://github.com/echasnovski/mini.nvim "${GITHUB_WORKSPACE}/.ci/mini.nvim"
-      - name: Run tests
-        env:
-          MINI_PATH: ${{ github.workspace }}/.ci/mini.nvim
-        run: nvim --headless -u tests/minimal_init.lua -c "lua MiniTest.run({})" -c "qa"
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Neovim Tests summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- neovim-version: \`${{ inputs.neovim-version }}\`"
-            echo "- mini-version: \`${{ inputs.mini-version }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Install Neovim
+      env:
+        VERSION: ${{ inputs.neovim-version }}
+        EXPECTED_SHA256: ${{ inputs.neovim-sha256 }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        for executable in gh python3 tar git; do
+          command -v "$executable" >/dev/null || { echo "::error::Runner prerequisite missing: $executable. Provision it on self-hosted runners."; exit 1; }
+        done
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64) platform=linux-x86_64;;
+          Linux/ARM64) platform=linux-arm64;;
+          macOS/X64) platform=macos-x86_64;;
+          macOS/ARM64) platform=macos-arm64;;
+          *) echo '::error::Neovim tests support Linux/macOS x64/arm64 runners'; exit 1;;
+        esac
+        [[ "$VERSION" = nightly || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+        [[ "$VERSION" = v0.12.5 || "$VERSION" = nightly || "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::Release overrides require neovim-sha256'; exit 1; }
+        install_dir="$RUNNER_TEMP/neovim"
+        mkdir -p "$install_dir"
+        if [ "$VERSION" != nightly ] || [ -n "$EXPECTED_SHA256" ]; then
+          gh release download "$VERSION" --repo neovim/neovim --pattern "nvim-$platform.tar.gz" --dir "$install_dir"
+        fi
+        export ASSET_NAME="nvim-$platform.tar.gz"
+        python3 - <<'PY'
+        import hashlib, json, os, pathlib, re, subprocess
+        pinned = {
+            'nvim-linux-x86_64.tar.gz': 'bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875',
+            'nvim-linux-arm64.tar.gz': '1aa5ca085249580ae0f91eb14f27ec0919773ff2d99a163d03f3d6c21ac29725',
+            'nvim-macos-x86_64.tar.gz': '81f4518622cb059b450ee2e498c6a1082a222f6bd89589de5bbcf0c6a68aa3fd',
+            'nvim-macos-arm64.tar.gz': '65fb000099e47ca1b762584c484cc833f40e30851a0ec450d4174e16317c1f9b',
+        }
+        e = os.environ
+        directory = pathlib.Path(e['RUNNER_TEMP']) / 'neovim'
+        archive = directory / e['ASSET_NAME']
+        expected = e['EXPECTED_SHA256'] or (pinned[e['ASSET_NAME']] if e['VERSION'] == 'v0.12.5' else '')
+        if not expected and e['VERSION'] == 'nightly':
+            # Resolve the asset ID and digest together. A replacement can delete
+            # that ID, so allow one fresh snapshot without relaxing verification.
+            for attempt in range(2):
+                try:
+                    assets = json.loads(subprocess.check_output(['gh', 'api', 'repos/neovim/neovim/releases/tags/nightly'], text=True))['assets']
+                    matching = [a for a in assets if a['name'] == e['ASSET_NAME']]
+                    if len(matching) != 1: raise SystemExit('Nightly requires exactly one matching release asset')
+                    asset = matching[0]
+                    digest = asset.get('digest') or ''
+                    expected = digest.removeprefix('sha256:') if digest.startswith('sha256:') else ''
+                    if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Nightly requires GitHub SHA-256 metadata')
+                    if type(asset.get('id')) is not int or asset['id'] <= 0: raise SystemExit('Nightly requires a valid release asset ID')
+                    with archive.open('wb') as out:
+                        subprocess.run(['gh', 'api', 'repos/neovim/neovim/releases/assets/' + str(asset['id']), '-H', 'Accept: application/octet-stream'], stdout=out, check=True)
+                except subprocess.CalledProcessError:
+                    if attempt == 1: raise SystemExit('Nightly download failed after one retry')
+                    print('::notice::Nightly asset unavailable; retrying with a fresh metadata snapshot')
+                    continue
+                if hashlib.sha256(archive.read_bytes()).hexdigest() == expected: break
+                if attempt == 1: raise SystemExit('Neovim asset checksum mismatch')
+                print('::notice::Nightly checksum mismatch; retrying with a fresh metadata snapshot')
+        if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Release overrides require neovim-sha256; nightly requires GitHub SHA-256 metadata')
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != expected: raise SystemExit('Neovim asset checksum mismatch')
+        PY
+        tar -xzf "$install_dir/nvim-$platform.tar.gz" -C "$install_dir"
+        echo "$install_dir/nvim-$platform/bin" >> "$GITHUB_PATH"
+      shell: bash
+    - name: Fetch pinned mini.nvim
+      env:
+        MINI_SHA: ${{ inputs.mini-version }}
+      run: |
+        [[ "$MINI_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::mini-version must be an immutable commit SHA'; exit 1; }
+        mini_dir="$RUNNER_TEMP/mini.nvim"
+        git init "$mini_dir"
+        git -C "$mini_dir" remote add origin https://github.com/nvim-mini/mini.nvim.git
+        git -C "$mini_dir" fetch --depth=1 origin "$MINI_SHA"
+        git -C "$mini_dir" checkout --detach FETCH_HEAD
+        test "$(git -C "$mini_dir" rev-parse HEAD)" = "$MINI_SHA"
+      shell: bash
+    - name: Run tests
+      id: tests
+      env:
+        MINI_PATH: ${{ runner.temp }}/mini.nvim
+        MINIMAL_INIT: ${{ inputs.minimal-init }}
+        TEST_DIRECTORY: ${{ inputs.test-directory }}
+      run: |
+        test -f "$MINIMAL_INIT"
+        test -d "$TEST_DIRECTORY"
+        python3 - <<'PY'
+        import os, pathlib
+        if not list(pathlib.Path(os.environ['TEST_DIRECTORY']).glob('test*.lua')): raise SystemExit('No test files found')
+        PY
+        cat > "$RUNNER_TEMP/run-mini-tests.lua" <<'LUA'
+        local ok, err = pcall(function()
+          if vim.v.errmsg ~= '' then error(vim.v.errmsg) end
+          local cases = MiniTest.collect({ find_files = function()
+            return vim.fn.glob(os.getenv('TEST_DIRECTORY') .. '/test*.lua', false, true)
+          end })
+          assert(#cases > 0, 'No test cases found')
+          MiniTest.execute(cases, { reporter = MiniTest.gen_reporter.stdout() })
+        end)
+        if not ok then
+          vim.api.nvim_err_writeln(tostring(err))
+          vim.cmd('cquit 1')
+        end
+        LUA
+        nvim --headless -u "$MINIMAL_INIT" -c 'lua dofile(os.getenv("RUNNER_TEMP") .. "/run-mini-tests.lua")'
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Neovim tests
+        FIELD_0: ${{ steps.tests.outcome }}
+        FIELD_1: ${{ inputs.neovim-version }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Tests: %s\n" "$FIELD_0"
+          printf -- "- Neovim: %s\n" "$FIELD_1"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory || '.' }}

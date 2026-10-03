@@ -1,264 +1,433 @@
 name: Universal CI
-
-on:
+'on':
   workflow_call:
     inputs:
       install:
-        description: 'Run the mise install task'
+        description: Run the mise install task
         required: false
         default: false
         type: boolean
       lint:
-        description: 'Run the mise lint task'
+        description: Run the mise lint task
         required: false
         default: false
         type: boolean
       build:
-        description: 'Run the mise build task'
+        description: Run the mise build task
         required: false
         default: false
         type: boolean
       test:
-        description: 'Run the mise test task'
+        description: Run the mise test task
         required: false
         default: false
         type: boolean
       vet:
-        description: 'Run the mise vet task'
+        description: Run the mise vet task
         required: false
         default: false
         type: boolean
       fmt:
-        description: 'Run the mise fmt task'
+        description: Run the mise fmt task
         required: false
         default: false
         type: boolean
       save-cache:
-        description: 'Save dependency and build caches after a successful run'
+        description: Save dependency and build caches after successful checks and required uploads
         required: false
         default: false
         type: boolean
       task-prefix:
-        description: 'Optional prefix added before standard task names (for example "go-" -> "go-test")'
+        description: Optional prefix added before standard task names (for example "go-" -> "go-test")
         required: false
         default: ''
         type: string
       task-env:
-        description: 'Optional multiline KEY=VALUE entries exported before running mise tasks'
+        description: Optional multiline KEY=VALUE entries exported before running mise tasks
         required: false
         default: ''
         type: string
       runner:
-        description: 'Runner label'
+        description: Runner label
         required: false
-        default: 'ubuntu-latest'
+        default: ubuntu-latest
         type: string
       timeout-minutes:
-        description: 'Job timeout in minutes'
+        description: Job timeout in minutes
         required: false
         default: 15
         type: number
-      cancel-in-progress:
-        description: 'Cancel previous in-progress runs for same ref'
+      working-directory:
+        description: Repository directory containing mise configuration and tasks; all task and cache discovery
+          uses this directory
         required: false
-        default: false
+        default: .
+        type: string
+      task:
+        description: Task to run when no phase flags are enabled; empty is invalid
+        type: string
+        required: false
+        default: ci
+      cache:
+        description: Restore dependency/build/tool caches; disable for private dependencies
         type: boolean
-      concurrency-suffix:
-        description: 'Optional suffix to distinguish concurrency groups'
+        required: false
+        default: true
+      cache-paths:
+        description: Additional cache paths relative to working-directory, one per line; absolute paths and ~ are supported
+        type: string
         required: false
         default: ''
+      cache-dependency-path:
+        description: Optional dependency-file glob, relative to repository root, included in cache identity
         type: string
-      working-directory:
-        description: 'Working directory for run steps. Note: the mise tasks handle working directories through task-env (e.g. MISE_GO_WORKING_DIR). This input exists for backwards compatibility with callers that pass it.'
         required: false
-        default: '.'
+        default: ''
+      artifact-path:
+        description: Build output paths relative to working-directory; requires artifact-name
         type: string
-
+        required: false
+        default: ''
+      artifact-name:
+        description: Name of the successful build artifact; requires artifact-path
+        type: string
+        required: false
+        default: ''
+      artifact-retention-days:
+        description: Artifact retention in days
+        type: number
+        required: false
+        default: 7
+      failure-artifact-path:
+        description: Optional diagnostic paths to upload when tasks fail, relative to working-directory
+        type: string
+        required: false
+        default: ''
+      failure-artifact-name:
+        description: Unique name for failure diagnostics
+        type: string
+        required: false
+        default: ci-diagnostics
+      mise-version:
+        description: Pinned mise release
+        type: string
+        required: false
+        default: 2026.9.18
+      install-tools:
+        description: Optional mise install arguments, e.g. node pnpm; empty installs tools declared by the consumer
+        type: string
+        required: false
+        default: ''
+      task-jobs:
+        description: Maximum parallel tasks; dependencies/order are owned by the repository task graph
+        type: number
+        required: false
+        default: 1
+      playwright-cache:
+        description: Restore browser binaries only in jobs that run browser tests; OS libraries remain the task/runner
+          responsibility
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      registry-token:
+        description: Optional private package registry credential exposed only to tasks as NODE_AUTH_TOKEN
+        required: false
+      dependency-token:
+        description: Optional read-only GitHub token for private modules; exposed only to tasks as DEPENDENCY_TOKEN
+        required: false
+    outputs:
+      artifact_id:
+        description: Uploaded artifact ID
+        value: ${{ jobs.ci.outputs.artifact_id }}
+      artifact_digest:
+        description: SHA-256 digest of uploaded artifact
+        value: ${{ jobs.ci.outputs.artifact_digest }}
+      artifact_url:
+        description: Uploaded artifact URL
+        value: ${{ jobs.ci.outputs.artifact_url }}
+      task_outcome:
+        description: Actual task execution outcome
+        value: ${{ jobs.ci.outputs.task_outcome }}
 jobs:
   ci:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
-      packages: read
     env:
       MISE_EXPERIMENTAL: true
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Install mise
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4
-        with:
-          cache_save: ${{ inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-
-      # Caches restore before `mise run install` ships the package modules /
-      # Playwright browsers. Each step is gated on its lockfile so a Go repo
-      # never caches pnpm and vice versa. Only an opted-in trusted default-
-      # branch run saves updated entries after every requested task succeeds.
-      - name: Restore pnpm store
-        id: restore-pnpm
-        if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.local/share/pnpm/store
-            ~/.cache/pnpm
-          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-${{ runner.os }}-
-
-      - name: Restore npm cache
-        id: restore-npm
-        if: ${{ hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == '' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
-
-      - name: Detect Go cache metadata
-        id: go-cache-metadata
-        if: ${{ hashFiles('go.mod') != '' }}
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Validate CI inputs
+      env:
+        ARTIFACT_PATH: ${{ inputs.artifact-path }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        FAILURE_NAME: ${{ inputs.failure-artifact-name }}
+        RETENTION: ${{ inputs.artifact-retention-days }}
+      run: |
+        if { [ -n "$ARTIFACT_PATH" ] && [ -z "$ARTIFACT_NAME" ]; } || { [ -z "$ARTIFACT_PATH" ] && [ -n "$ARTIFACT_NAME" ]; }; then
+          echo '::error::artifact-path and artifact-name must be supplied together'; exit 1
+        fi
+        [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo '::error::Artifact retention must be a positive integer'; exit 1; }
+        python3 - <<'PY'
+        import os
+        for variable in ['ARTIFACT_NAME', 'FAILURE_NAME']:
+            if any(char in os.environ.get(variable, '') for char in '\"/:<>|*?\\\r\n'):
+                raise SystemExit(variable + ' contains a character forbidden in artifact names')
+        if int(os.environ['RETENTION']) > int(os.environ.get('GITHUB_RETENTION_DAYS', '90')):
+            raise SystemExit('Artifact retention exceeds the repository limit')
+        PY
+      shell: bash
+    - name: Resolve artifact paths
+      id: paths
+      env:
+        BUILD_PATHS: ${{ inputs.artifact-path }}
+        FAILURE_PATHS: ${{ inputs.failure-artifact-path }}
+      run: |
+        python3 - <<'PY'
+        import os, pathlib, uuid
+        root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        cwd = pathlib.Path.cwd().resolve()
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            for name, variable in [('build', 'BUILD_PATHS'), ('failure', 'FAILURE_PATHS')]:
+                paths = []
+                for line in os.environ[variable].splitlines():
+                    if not line.strip(): continue
+                    negative = line.startswith('!')
+                    path = (cwd / (line[1:] if negative else line)).resolve()
+                    path.relative_to(root)
+                    if path == root: raise SystemExit('Artifact paths must select a child of the repository')
+                    paths.append(('!' if negative else '') + str(path))
+                if os.environ[variable] and not any(not path.startswith('!') for path in paths):
+                    raise SystemExit(variable + ' requires at least one inclusion path')
+                delimiter = 'PATHS_' + uuid.uuid4().hex
+                out.write(name + '<<' + delimiter + '\n' + '\n'.join(paths) + '\n' + delimiter + '\n')
+        PY
+      shell: bash
+    - name: Install mise
+      uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea
+      with:
+        working_directory: ${{ inputs.working-directory || '.' }}
+        cache: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
+        cache_save: ${{ inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        version: ${{ inputs.mise-version }}
+        install_args: ${{ inputs.install-tools }}
+        add_shims_to_path: false
+    - name: Expose installed tool binaries
+      shell: bash
+      run: |
+        mise bin-paths > "$RUNNER_TEMP/mise-bin-paths"
+        while IFS= read -r directory; do
+          if [ -d "$directory" ]; then printf '%s\n' "$directory" >> "$GITHUB_PATH"; fi
+        done < "$RUNNER_TEMP/mise-bin-paths"
+    - name: Detect cache metadata
+      id: cache-metadata
+      if: ${{ inputs.cache }}
+      env:
+        EXTRA_PATHS: ${{ inputs.cache-paths }}
+        PLAYWRIGHT_CACHE: ${{ inputs.playwright-cache }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import hashlib, json, os, pathlib, shutil, subprocess
+        def command(*args):
+            return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
+        def detect(manager):
+            try:
+                if manager == 'pnpm':
+                    return [command('pnpm', 'store', 'path', '--silent')], ['pnpm=' + command('pnpm', '--version')], ''
+                if manager == 'npm':
+                    return [command('npm', 'config', 'get', 'cache')], ['node=' + command('node', '--version')], ''
+                if manager == 'yarn':
+                    version = command('yarn', '--version')
+                    try:
+                        cache = command('yarn', 'config', 'get', 'cacheFolder')
+                        if cache == 'undefined': raise ValueError('classic yarn')
+                    except (ValueError, subprocess.CalledProcessError):
+                        cache = command('yarn', 'cache', 'dir')
+                    return [cache], ['yarn=' + version], ''
+                if manager == 'bun':
+                    return [str(pathlib.Path.home() / '.bun/install/cache')], ['bun=' + command('bun', '--version')], ''
+                return [command('go', 'env', 'GOMODCACHE')], ['go=' + command('go', 'env', 'GOVERSION')], command('go', 'env', 'GOCACHE')
+            except (OSError, subprocess.CalledProcessError):
+                print('::notice::Skipping automatic ' + manager + ' cache metadata; tool unavailable before consumer tasks')
+                return [], [], ''
+        dependency_paths = []
+        versions = []
+        manager = ''
+        if pathlib.Path('pnpm-lock.yaml').is_file():
+            manager = 'pnpm'
+        elif pathlib.Path('package-lock.json').is_file() or pathlib.Path('npm-shrinkwrap.json').is_file():
+            manager = 'npm'
+        elif pathlib.Path('yarn.lock').is_file():
+            manager = 'yarn'
+        elif pathlib.Path('bun.lock').is_file() or pathlib.Path('bun.lockb').is_file():
+            manager = 'bun'
+        if manager:
+            dependency_paths, versions, _ = detect(manager)
+        build_cache = ''
+        if pathlib.Path('go.mod').is_file():
+            go_paths, go_versions, build_cache = detect('go')
+            dependency_paths += go_paths
+            versions += go_versions
+        if os.environ['PLAYWRIGHT_CACHE'] == 'true':
+            for location in ('.cache/ms-playwright', 'Library/Caches/ms-playwright'):
+                dependency_paths.append(str(pathlib.Path.home() / location))
+        for extra in os.environ['EXTRA_PATHS'].splitlines():
+            if extra:
+                negative = extra.startswith('!')
+                path = pathlib.Path(extra[1:] if negative else extra).expanduser()
+                dependency_paths.append(('!' if negative else '') + str(path if path.is_absolute() else pathlib.Path.cwd() / path))
+        dependency_paths = [p for p in dict.fromkeys(dependency_paths) if p]
+        scope = hashlib.sha256(str(pathlib.Path.cwd().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())).encode()).hexdigest()[:16]
+        tools = hashlib.sha256('\n'.join(versions).encode()).hexdigest()[:16]
+        path_set = hashlib.sha256(json.dumps(sorted(dependency_paths)).encode()).hexdigest()[:16]
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            out.write('paths<<CACHE_PATHS\n' + '\n'.join(dependency_paths) + '\nCACHE_PATHS\n')
+            out.write(f'build_cache={build_cache}\nscope={scope}\ntools={tools}\npath_set={path_set}\n')
+        PY
+      shell: bash
+    - name: Restore dependencies
+      id: dependencies
+      if: ${{ inputs.cache && steps.cache-metadata.outputs.paths != '' && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.cache-metadata.outputs.paths }}
+        key: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{ steps.cache-metadata.outputs.tools
+          }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'), format('{0}/**/go.sum', inputs.working-directory || '.'),
+          format('{0}/**/*lock*', inputs.working-directory || '.'), format('{0}/mise.toml', inputs.working-directory || '.'),
+          format('{0}/.tool-versions', inputs.working-directory || '.'), inputs.cache-dependency-path) }}
+        restore-keys: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{
+          steps.cache-metadata.outputs.tools }}-
+    - name: Restore Go build cache
+      id: go-build-cache
+      if: ${{ inputs.cache && steps.cache-metadata.outputs.build_cache != '' && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.cache-metadata.outputs.build_cache }}
+        key: build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.tools
+          }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'), format('{0}/**/go.sum', inputs.working-directory || '.'),
+          format('{0}/**/*lock*', inputs.working-directory || '.'), format('{0}/mise.toml', inputs.working-directory || '.'),
+          format('{0}/.tool-versions', inputs.working-directory || '.'), inputs.cache-dependency-path) }}-${{ github.sha
+          }}
+        restore-keys: build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{
+          steps.cache-metadata.outputs.tools }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'),
+          format('{0}/**/go.sum', inputs.working-directory || '.'), format('{0}/**/*lock*', inputs.working-directory || '.'),
+          format('{0}/mise.toml', inputs.working-directory || '.'), format('{0}/.tool-versions', inputs.working-directory || '.'),
+          inputs.cache-dependency-path) }}-
+    - name: Run repository tasks
+      id: tasks
+      env:
+        DEFAULT_TASK: ${{ inputs.task }}
+        TASK_PREFIX: ${{ inputs.task-prefix }}
+        TASK_ENV: ${{ inputs.task-env }}
+        PHASE_INSTALL: ${{ inputs.install }}
+        PHASE_LINT: ${{ inputs.lint }}
+        PHASE_BUILD: ${{ inputs.build }}
+        PHASE_TEST: ${{ inputs.test }}
+        PHASE_VET: ${{ inputs.vet }}
+        PHASE_FMT: ${{ inputs.fmt }}
+        NODE_AUTH_TOKEN: ${{ secrets.registry-token }}
+        DEPENDENCY_TOKEN: ${{ secrets.dependency-token }}
+        TASK_JOBS: ${{ inputs.task-jobs }}
+      run: |
+        set -euo pipefail
+        while IFS= read -r line || [ -n "$line" ]; do
+          [ -z "$line" ] && continue
+          [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo '::error::task-env must contain KEY=VALUE entries'; exit 1; }
+          key="${line%%=*}"
+          case "$key" in GITHUB_*|RUNNER_*|ACTIONS_*|NODE_AUTH_TOKEN|DEPENDENCY_TOKEN|PHASE_*|DEFAULT_TASK|TASK_PREFIX|TASK_ENV|TASK_JOBS|PATH|BASH_ENV|ENV)
+            echo '::error::task-env cannot override workflow control variables'; exit 1;;
+          esac
+          export "${line?}"
+        done <<< "$TASK_ENV"
+        tasks=()
+        for phase in install lint build test vet fmt; do
+          flag="PHASE_$(printf %s "$phase" | tr '[:lower:]' '[:upper:]')"
+          if [ "${!flag}" = true ]; then tasks+=("$TASK_PREFIX$phase"); fi
+        done
+        if [ "${#tasks[@]}" -eq 0 ]; then
+          [ -n "$DEFAULT_TASK" ] || { echo '::error::A task or at least one phase is required'; exit 1; }
+          tasks=("$TASK_PREFIX$DEFAULT_TASK")
+        fi
+        for task in "${tasks[@]}"; do
+          [[ "$task" =~ ^[A-Za-z0-9_][A-Za-z0-9_.:-]*$ ]] || { echo '::error::Invalid task name'; exit 1; }
+        done
+        # One process shares the dependency graph: install/build dependencies execute once.
+        invocations=()
+        for task in "${tasks[@]}"; do
+          if [ "${#invocations[@]}" -gt 0 ]; then invocations+=(:::); fi
+          invocations+=("$task")
+        done
+        [[ "$TASK_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo '::error::task-jobs must be positive'; exit 1; }
+        mise run --skip-tools --jobs "$TASK_JOBS" "${invocations[@]}"
+      shell: bash
+    - name: Upload build artifact
+      id: artifact
+      if: ${{ inputs.artifact-path != '' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.paths.outputs.build }}
+        if-no-files-found: error
+        retention-days: ${{ inputs.artifact-retention-days }}
+    - name: Upload failure diagnostics
+      if: ${{ failure() && inputs.failure-artifact-path != '' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ inputs.failure-artifact-name }}
+        path: ${{ steps.paths.outputs.failure }}
+        if-no-files-found: warn
+        retention-days: ${{ inputs.artifact-retention-days }}
+    - name: Save dependencies
+      if: ${{ success() && inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name
+        == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        && steps.dependencies.outputs.cache-primary-key != '' && steps.dependencies.outputs.cache-hit != 'true'
+        }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.cache-metadata.outputs.paths }}
+        key: ${{ steps.dependencies.outputs.cache-primary-key }}
+    - name: Save Go build cache
+      if: ${{ success() && inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name
+        == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        && steps.go-build-cache.outputs.cache-primary-key != '' && steps.go-build-cache.outputs.cache-hit != 'true'
+        }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.cache-metadata.outputs.build_cache }}
+        key: ${{ steps.go-build-cache.outputs.cache-primary-key }}
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Universal CI
+        FIELD_0: ${{ steps.tasks.outcome }}
+        FIELD_1: ${{ steps.artifact.outcome }}
+        FIELD_2: ${{ steps.dependencies.outputs.cache-matched-key }}
+        FIELD_3: ${{ steps.go-build-cache.outputs.cache-matched-key }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Tasks: %s\n" "$FIELD_0"
+          printf -- "- Build artifact: %s\n" "$FIELD_1"
+          printf -- "- Dependency cache: %s\n" "$FIELD_2"
+          printf -- "- Go build cache: %s\n" "$FIELD_3"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      artifact_digest: ${{ steps.artifact.outputs.artifact-digest }}
+      artifact_url: ${{ steps.artifact.outputs.artifact-url }}
+      task_outcome: ${{ steps.tasks.outcome }}
+    defaults:
+      run:
         shell: bash
-        run: |
-          {
-            echo "version=$(go env GOVERSION)"
-            echo "module_cache=$(go env GOMODCACHE)"
-            echo "build_cache=$(go env GOCACHE)"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Restore Go module cache
-        id: restore-go-modules
-        if: ${{ hashFiles('go.mod') != '' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.go-cache-metadata.outputs.module_cache }}
-          key: go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: |
-            go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-
-
-      - name: Restore Go build cache
-        id: restore-go-build
-        if: ${{ hashFiles('go.mod') != '' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.go-cache-metadata.outputs.build_cache }}
-          key: go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-
-
-      - name: Restore Playwright browser binaries
-        id: restore-playwright
-        # Restored before `mise run install` (which installs browsers) and
-        # saved only by an opted-in trusted run after the install task
-        # populates them. Keyed by runner OS so Linux/mac binaries never
-        # cross-contaminate. Skipped for repos with no Playwright config.
-        if: ${{ hashFiles('**/playwright.config.ts', '**/playwright.config.js') != '' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('**/playwright.config.ts', '**/playwright.config.js') }}-v1
-
-      - name: Export task environment
-        if: ${{ inputs.task-env != '' }}
-        env:
-          TASK_ENV: ${{ inputs.task-env }}
-        run: |
-          task_env_file="$RUNNER_TEMP/universal-ci-task-env"
-          printf '%s\n' "$TASK_ENV" > "$task_env_file"
-          while IFS= read -r line || [ -n "$line" ]; do
-            if [ -n "$line" ]; then
-              printf '%s\n' "$line" >> "$GITHUB_ENV"
-            fi
-          done < "$task_env_file"
-          rm -f "$task_env_file"
-
-      - name: Run install task
-        if: ${{ inputs.install }}
-        run: mise run "${{ inputs.task-prefix }}install"
-
-      - name: Run lint task
-        if: ${{ inputs.lint }}
-        run: mise run "${{ inputs.task-prefix }}lint"
-
-      - name: Run build task
-        if: ${{ inputs.build }}
-        run: mise run "${{ inputs.task-prefix }}build"
-
-      - name: Run test task
-        if: ${{ inputs.test }}
-        run: mise run "${{ inputs.task-prefix }}test"
-
-      - name: Run vet task
-        if: ${{ inputs.vet }}
-        run: mise run "${{ inputs.task-prefix }}vet"
-
-      - name: Run fmt task
-        if: ${{ inputs.fmt }}
-        run: mise run "${{ inputs.task-prefix }}fmt"
-
-      - name: Save pnpm store
-        if: ${{ success() && inputs.save-cache && hashFiles('pnpm-lock.yaml') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-pnpm.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.local/share/pnpm/store
-            ~/.cache/pnpm
-          key: ${{ steps.restore-pnpm.outputs.cache-primary-key }}
-
-      - name: Save npm cache
-        if: ${{ success() && inputs.save-cache && hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-npm.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.npm
-          key: ${{ steps.restore-npm.outputs.cache-primary-key }}
-
-      - name: Save Go module cache
-        if: ${{ success() && inputs.save-cache && hashFiles('go.mod') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-go-modules.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.go-cache-metadata.outputs.module_cache }}
-          key: ${{ steps.restore-go-modules.outputs.cache-primary-key }}
-
-      - name: Save Go build cache
-        if: ${{ success() && inputs.save-cache && hashFiles('go.mod') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-go-build.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.go-cache-metadata.outputs.build_cache }}
-          key: ${{ steps.restore-go-build.outputs.cache-primary-key }}
-
-      - name: Save Playwright browser binaries
-        if: ${{ success() && inputs.save-cache && hashFiles('**/playwright.config.ts', '**/playwright.config.js') != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.restore-playwright.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/Library/Caches/ms-playwright
-          key: ${{ steps.restore-playwright.outputs.cache-primary-key }}
-
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Universal CI summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- timeout-minutes: \`${{ inputs.timeout-minutes }}\`"
-            echo "- task-prefix: \`${{ inputs.task-prefix }}\`"
-            echo "- task-env provided: \`${{ inputs.task-env != '' }}\`"
-            echo "- install: \`${{ inputs.install }}\`"
-            echo "- lint: \`${{ inputs.lint }}\`"
-            echo "- build: \`${{ inputs.build }}\`"
-            echo "- test: \`${{ inputs.test }}\`"
-            echo "- vet: \`${{ inputs.vet }}\`"
-            echo "- fmt: \`${{ inputs.fmt }}\`"
-            echo "- save-cache: \`${{ inputs.save-cache }}\`"
-            echo "- Go module cache: \`${{ steps.restore-go-modules.outputs.cache-matched-key || 'not used' }}\`"
-            echo "- Go build cache: \`${{ steps.restore-go-build.outputs.cache-matched-key || 'not used' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+        working-directory: ${{ inputs.working-directory || '.' }}

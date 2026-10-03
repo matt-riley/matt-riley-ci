@@ -1,103 +1,160 @@
 name: Go Security
-
-on:
+'on':
   workflow_call:
     inputs:
       go-version-file:
-        description: 'Path to go.mod'
-        required: false
-        default: 'go.mod'
-        type: string
-      runner:
-        description: 'Runner label'
-        required: false
-        default: 'ubuntu-latest'
-        type: string
-      working-directory:
-        description: 'Directory to run govulncheck in'
-        required: false
-        default: '.'
-        type: string
-      govulncheck-version:
-        description: 'govulncheck module version (e.g. v1.1.4; set latest to float)'
-        required: false
-        default: 'v1.1.4'
-        type: string
-      timeout-minutes:
-        description: 'Job timeout in minutes'
-        required: false
-        default: 15
-        type: number
-      cancel-in-progress:
-        description: 'Cancel previous in-progress runs for same ref'
-        required: false
-        default: false
-        type: boolean
-      concurrency-suffix:
-        description: 'Optional suffix to distinguish concurrency groups when this reusable workflow is called multiple times in one workflow'
+        description: Module file relative to repository root; empty resolves working-directory/go.mod
         required: false
         default: ''
         type: string
-
+      runner:
+        description: Runner label
+        required: false
+        default: ubuntu-latest
+        type: string
+      working-directory:
+        description: Directory to run govulncheck in; empty selects repository root
+        required: false
+        default: .
+        type: string
+      govulncheck-version:
+        description: govulncheck module version (e.g. v1.1.4; set latest to float)
+        required: false
+        default: v1.1.4
+        type: string
+      timeout-minutes:
+        description: Job timeout in minutes
+        required: false
+        default: 15
+        type: number
+      cache:
+        description: Restore dependency/build/tool caches; disable for private dependencies
+        type: boolean
+        required: false
+        default: true
+      save-cache:
+        description: Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline
+        type: boolean
+        required: false
+        default: false
 jobs:
   govulncheck:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ inputs.concurrency-suffix != '' && format('{0}:{1}:{2}:{3}', github.workflow, github.repository, github.ref, inputs.concurrency-suffix) || format('{0}:{1}:{2}', github.workflow, github.repository, github.ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: ${{ inputs.go-version-file }}
-          cache: false
-
-      - name: Detect Go cache metadata
-        id: go-cache-metadata
-        shell: bash
-        run: |
-          {
-            echo "version=$(go env GOVERSION)"
-            echo "module_cache=$(go env GOMODCACHE)"
-            echo "build_cache=$(go env GOCACHE)"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Restore Go module cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.go-cache-metadata.outputs.module_cache }}
-          key: go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: |
-            go-mod-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-
-
-      - name: Restore Go build cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.go-cache-metadata.outputs.build_cache }}
-          key: go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles('go.mod', 'go.sum') }}-
-
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck-version }}
-
-      - name: Run govulncheck
-        run: |
-          cd ${{ inputs.working-directory }}
-          govulncheck ./...
-
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Go Security summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- working-directory: \`${{ inputs.working-directory }}\`"
-            echo "- govulncheck-version: \`${{ inputs.govulncheck-version }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      with:
+        go-version-file: ${{ inputs.go-version-file != '' && inputs.go-version-file || format('{0}/go.mod', inputs.working-directory || '.')
+          }}
+        cache: false
+    - name: Detect Go cache metadata
+      id: go-cache-metadata
+      shell: bash
+      run: |
+        {
+          echo "version=$(go env GOVERSION)"
+          echo "module_cache=$(go env GOMODCACHE)"
+          echo "build_cache=$(go env GOCACHE)"
+        } >> "$GITHUB_OUTPUT"
+        printf "scope=%s\n" "$(printf %s "$MODULE_DIR" | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      working-directory: ${{ inputs.working-directory || '.' }}
+      env:
+        MODULE_DIR: ${{ inputs.working-directory || '.' }}
+    - name: Restore Go module cache
+      if: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.go-cache-metadata.outputs.module_cache }}
+        key: go-mod-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version
+          }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory || '.'), format('{0}/go.sum', inputs.working-directory || '.'))
+          }}
+        restore-keys: |
+          go-mod-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version }}-
+      id: go-module-cache
+    - name: Restore Go build cache
+      if: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.go-cache-metadata.outputs.build_cache }}
+        key: go-build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version
+          }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory || '.'), format('{0}/go.sum', inputs.working-directory || '.'))
+          }}-${{ github.sha }}
+        restore-keys: |
+          go-build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.scope }}-${{ steps.go-cache-metadata.outputs.version }}-${{ hashFiles(format('{0}/go.mod', inputs.working-directory || '.'), format('{0}/go.sum', inputs.working-directory || '.')) }}-
+      id: go-build-cache
+    - name: Resolve scanner cache
+      id: scanner
+      env:
+        VERSION: ${{ inputs.govulncheck-version }}
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/govulncheck-bin"
+        printf '%s\n' "$RUNNER_TEMP/govulncheck-bin" >> "$GITHUB_PATH"
+        if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo 'cacheable=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'cacheable=false' >> "$GITHUB_OUTPUT"
+        fi
+    - name: Restore pinned scanner binary
+      id: scanner-cache
+      if: ${{ inputs.cache && steps.scanner.outputs.cacheable == 'true' }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ runner.temp }}/govulncheck-bin
+        key: govulncheck-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache-metadata.outputs.version }}-${{ inputs.govulncheck-version }}
+    - name: Install govulncheck
+      if: ${{ steps.scanner-cache.outputs.cache-hit != 'true' }}
+      run: |
+        go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
+      shell: bash
+      env:
+        GOVULNCHECK_VERSION: ${{ inputs.govulncheck-version }}
+        GOBIN: ${{ runner.temp }}/govulncheck-bin
+    - name: Run govulncheck
+      run: |
+        govulncheck ./...
+      shell: bash
+      id: scan
+      working-directory: ${{ inputs.working-directory || '.' }}
+    - name: Save pinned scanner binary
+      if: ${{ success() && inputs.cache && inputs.save-cache && steps.scanner.outputs.cacheable == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.scanner-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ runner.temp }}/govulncheck-bin
+        key: ${{ steps.scanner-cache.outputs.cache-primary-key }}
+    - name: Save Go module cache
+      if: ${{ success() && inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.go-module-cache.outputs.cache-hit
+        != 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.go-cache-metadata.outputs.module_cache }}
+        key: ${{ steps.go-module-cache.outputs.cache-primary-key }}
+    - name: Save Go build cache
+      if: ${{ success() && inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.go-build-cache.outputs.cache-hit
+        != 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.go-cache-metadata.outputs.build_cache }}
+        key: ${{ steps.go-build-cache.outputs.cache-primary-key }}
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Go vulnerability scan
+        FIELD_0: ${{ steps.scan.outcome }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Scan outcome: %s\n" "$FIELD_0"
+        } >> "$GITHUB_STEP_SUMMARY"

@@ -1,177 +1,209 @@
 name: Request Infra Deploy
-
-on:
+'on':
   workflow_call:
     inputs:
       app-name:
-        description: 'Catalog app identifier in the infra repo'
+        description: Catalog app identifier in the infra repo
         required: true
         type: string
       infra-repo:
-        description: 'Infra repository name or owner/name'
+        description: Infra repository name or owner/name
         required: false
-        default: 'infra'
+        default: infra
         type: string
       artifact-run-id:
-        description: 'Actions run ID containing the immutable deployment artifact; 0 selects source-only mode'
+        description: Actions run ID containing the immutable deployment artifact; 0 selects source-only mode
         required: false
         default: '0'
         type: string
       artifact-name:
-        description: 'Exact Actions artifact name to deploy'
+        description: Exact Actions artifact name to deploy
         required: false
         default: ''
         type: string
       artifact-digest:
-        description: 'Actions artifact digest emitted by upload-artifact'
+        description: Actions artifact digest emitted by upload-artifact
         required: false
         default: ''
         type: string
+      dispatch-app-id:
+        description: GitHub App ID installed on the target repository
+        type: string
+        required: true
+      production-branch:
+        description: Trusted source deployment branch
+        type: string
+        required: false
+        default: main
+      environment:
+        description: Optional protected deployment environment
+        type: string
+        required: false
+        default: ''
     secrets:
       PRIVATE_KEY:
-        description: 'GitHub App private key matching vars.APP_ID'
+        description: Private key matching dispatch-app-id
         required: true
-
+    outputs:
+      dispatched:
+        description: dispatched
+        value: ${{ jobs.request.outputs.dispatched }}
+      source_sha:
+        description: source sha
+        value: ${{ jobs.request.outputs.source_sha }}
 jobs:
   request:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - name: Resolve infra repository
-        id: resolve
-        env:
-          DEFAULT_OWNER: ${{ github.repository_owner }}
-          INPUT_INFRA_REPO: ${{ inputs.infra-repo }}
-        run: |
-          infra_repo="$INPUT_INFRA_REPO"
+    - name: Resolve infra repository
+      id: resolve
+      env:
+        DEFAULT_OWNER: ${{ github.repository_owner }}
+        INPUT_INFRA_REPO: ${{ inputs.infra-repo }}
+      run: |
+        infra_repo="$INPUT_INFRA_REPO"
 
-          case "$infra_repo" in
-            */*)
-              infra_owner="${infra_repo%%/*}"
-              infra_name="${infra_repo##*/}"
-              ;;
-            *)
-              infra_owner="$DEFAULT_OWNER"
-              infra_name="$infra_repo"
-              ;;
-          esac
+        case "$infra_repo" in
+          */*)
+            infra_owner="${infra_repo%%/*}"
+            infra_name="${infra_repo#*/}"
+            ;;
+          *)
+            infra_owner="$DEFAULT_OWNER"
+            infra_name="$infra_repo"
+            ;;
+        esac
 
-          if [ -z "$infra_owner" ] || [ -z "$infra_name" ]; then
-            echo "Invalid infra repository: $infra_repo" >&2
+        if ! [[ "$infra_owner" =~ ^[A-Za-z0-9_.-]+$ && "$infra_name" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+          echo "Invalid infra repository: $infra_repo" >&2
+          exit 1
+        fi
+
+        {
+          echo "infra_owner=$infra_owner"
+          echo "infra_name=$infra_name"
+          echo "infra_full_name=$infra_owner/$infra_name"
+        } >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Validate GitHub App configuration
+      env:
+        APP_ID: ${{ inputs.dispatch-app-id }}
+      run: |
+        if [ -z "$APP_ID" ]; then
+          echo "dispatch-app-id is required." >&2
+          exit 1
+        fi
+      shell: bash
+    - name: Validate artifact configuration
+      env:
+        ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+      run: |
+        if [ "$ARTIFACT_RUN_ID" = "0" ]; then
+          if [ -n "$ARTIFACT_NAME" ] || [ -n "$ARTIFACT_DIGEST" ]; then
+            echo "artifact-run-id, artifact-name, and artifact-digest must be supplied together." >&2
             exit 1
           fi
+          exit 0
+        fi
 
-          {
-            echo "infra_owner=$infra_owner"
-            echo "infra_name=$infra_name"
-            echo "infra_full_name=$infra_owner/$infra_name"
-          } >> "$GITHUB_OUTPUT"
+        if ! [[ "$ARTIFACT_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+          echo "artifact-run-id must be a positive Actions run ID." >&2
+          exit 1
+        fi
+        if [ -z "$ARTIFACT_NAME" ]; then
+          echo "artifact-name is required in artifact mode." >&2
+          exit 1
+        fi
+        if ! [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+          echo "artifact-digest must be a lowercase SHA-256 digest." >&2
+          exit 1
+        fi
+      shell: bash
+    - name: Create GitHub App token for infra repo
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+      with:
+        app-id: ${{ inputs.dispatch-app-id }}
+        owner: ${{ steps.resolve.outputs.infra_owner }}
+        private-key: ${{ secrets.PRIVATE_KEY }}
+        repositories: ${{ steps.resolve.outputs.infra_name }}
+        permission-contents: write
+    - name: Dispatch infra deploy request
+      env:
+        APP_NAME: ${{ inputs.app-name }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        INFRA_NAME: ${{ steps.resolve.outputs.infra_name }}
+        INFRA_OWNER: ${{ steps.resolve.outputs.infra_owner }}
+        SOURCE_REF: ${{ github.ref }}
+        SOURCE_REPO: ${{ github.repository }}
+        SOURCE_SHA: ${{ github.sha }}
+        ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+      run: |
+        [[ "$APP_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo '::error::Invalid app-name'; exit 1; }
+        [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+        python3 - <<'PY' > "$RUNNER_TEMP/infra-dispatch.json"
+        import json
+        import os
+        import sys
 
-      - name: Validate GitHub App configuration
-        env:
-          APP_ID: ${{ vars.APP_ID }}
-        run: |
-          if [ -z "$APP_ID" ]; then
-            echo "Repository variable APP_ID is required." >&2
-            exit 1
-          fi
+        client_payload = {
+            "app": os.environ["APP_NAME"],
+            "app_id": os.environ["APP_NAME"],
+            "source_repo": os.environ["SOURCE_REPO"],
+            "source_sha": os.environ["SOURCE_SHA"],
+            "ref": os.environ["SOURCE_REF"],
+        }
 
-      - name: Validate artifact configuration
-        env:
-          ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
-          ARTIFACT_NAME: ${{ inputs.artifact-name }}
-          ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
-        run: |
-          if [ "$ARTIFACT_RUN_ID" = "0" ]; then
-            if [ -n "$ARTIFACT_NAME" ] || [ -n "$ARTIFACT_DIGEST" ]; then
-              echo "artifact-run-id, artifact-name, and artifact-digest must be supplied together." >&2
-              exit 1
-            fi
-            exit 0
-          fi
+        if os.environ["ARTIFACT_RUN_ID"] != "0":
+            client_payload.update(
+                {
+                    "artifact_run_id": int(os.environ["ARTIFACT_RUN_ID"]),
+                    "artifact_name": os.environ["ARTIFACT_NAME"],
+                    "artifact_digest": os.environ["ARTIFACT_DIGEST"],
+                }
+            )
 
-          if ! [[ "$ARTIFACT_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
-            echo "artifact-run-id must be a positive Actions run ID." >&2
-            exit 1
-          fi
-          if [ -z "$ARTIFACT_NAME" ]; then
-            echo "artifact-name is required in artifact mode." >&2
-            exit 1
-          fi
-          if ! [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "artifact-digest must be a lowercase SHA-256 digest." >&2
-            exit 1
-          fi
+        payload = {"event_type": "deploy-app", "client_payload": client_payload}
 
-      - name: Create GitHub App token for infra repo
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ vars.APP_ID }}
-          owner: ${{ steps.resolve.outputs.infra_owner }}
-          private-key: ${{ secrets.PRIVATE_KEY }}
-          repositories: ${{ steps.resolve.outputs.infra_name }}
-
-      - name: Dispatch infra deploy request
-        env:
-          APP_NAME: ${{ inputs.app-name }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          INFRA_NAME: ${{ steps.resolve.outputs.infra_name }}
-          INFRA_OWNER: ${{ steps.resolve.outputs.infra_owner }}
-          SOURCE_REF: ${{ github.ref }}
-          SOURCE_REPO: ${{ github.repository }}
-          SOURCE_SHA: ${{ github.sha }}
-          ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
-          ARTIFACT_NAME: ${{ inputs.artifact-name }}
-          ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
-        run: |
-          python - <<'PY' | curl --fail-with-body --silent --show-error \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${INFRA_OWNER}/${INFRA_NAME}/dispatches" \
-            --data-binary @-
-          import json
-          import os
-          import sys
-
-          client_payload = {
-              "app": os.environ["APP_NAME"],
-              "app_id": os.environ["APP_NAME"],
-              "source_repo": os.environ["SOURCE_REPO"],
-              "source_sha": os.environ["SOURCE_SHA"],
-              "ref": os.environ["SOURCE_REF"],
-          }
-
-          if os.environ["ARTIFACT_RUN_ID"] != "0":
-              client_payload.update(
-                  {
-                      "artifact_run_id": int(os.environ["ARTIFACT_RUN_ID"]),
-                      "artifact_name": os.environ["ARTIFACT_NAME"],
-                      "artifact_digest": os.environ["ARTIFACT_DIGEST"],
-                  }
-              )
-
-          payload = {"event_type": "deploy-app", "client_payload": client_payload}
-
-          sys.stdout.write(json.dumps(payload))
-          PY
-
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### Request infra deploy summary"
-            echo "- app-name: \`${{ inputs.app-name }}\`"
-            echo "- infra-repo: \`${{ steps.resolve.outputs.infra_full_name }}\`"
-            echo "- source-repo: \`${{ github.repository }}\`"
-            echo "- source-sha: \`${{ github.sha }}\`"
-            echo "- ref: \`${{ github.ref }}\`"
-            echo "- artifact-mode: \`${{ inputs.artifact-run-id != 0 }}\`"
-            echo "- artifact-run-id: \`${{ inputs.artifact-run-id }}\`"
-            echo "- artifact-name: \`${{ inputs.artifact-name }}\`"
-            echo "- artifact-digest: \`${{ inputs.artifact-digest }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+        sys.stdout.write(json.dumps(payload))
+        PY
+        curl --fail-with-body --silent --show-error \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/${INFRA_OWNER}/${INFRA_NAME}/dispatches" \
+          --data-binary "@$RUNNER_TEMP/infra-dispatch.json"
+        echo 'dispatched=true' >> "$GITHUB_OUTPUT"
+      shell: bash
+      id: dispatch
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Infra dispatch
+        FIELD_0: ${{ steps.dispatch.outputs.dispatched }}
+        FIELD_1: ${{ steps.resolve.outputs.infra_full_name }}
+        FIELD_2: ${{ github.sha }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Dispatched: %s\n" "$FIELD_0"
+          printf -- "- Target: %s\n" "$FIELD_1"
+          printf -- "- Source SHA: %s\n" "$FIELD_2"
+        } >> "$GITHUB_STEP_SUMMARY"
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}',
+      inputs.production-branch) }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      dispatched: ${{ steps.dispatch.outputs.dispatched }}
+      source_sha: ${{ github.sha }}

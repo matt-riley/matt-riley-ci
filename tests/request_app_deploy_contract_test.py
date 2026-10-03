@@ -37,6 +37,7 @@ class RequestAppDeployContractTest(unittest.TestCase):
             gh.write_text('#!/bin/sh\ncat\n')
             gh.chmod(0o755)
             env = dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH'], APP='waffle', SOURCE_REPO='matt-riley/waffle', SOURCE_SHA='a' * 40, SOURCE_REF='refs/heads/main', RUN_ID='', ARTIFACT_NAME='', ARTIFACT_DIGEST='')
+            env['GITHUB_OUTPUT'] = str(Path(directory, 'outputs'))
             env.update(overrides)
             return subprocess.run(['bash', '-c', self.script], env=env, text=True, capture_output=True)
 
@@ -54,7 +55,7 @@ class RequestAppDeployContractTest(unittest.TestCase):
         result = self.run_dispatch(RUN_ID='123', ARTIFACT_NAME='waffle-linux-amd64', ARTIFACT_DIGEST='b' * 64)
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)['client_payload']
-        self.assertEqual('123', payload['artifact_run_id'])
+        self.assertEqual(123, payload['artifact_run_id'])
         self.assertEqual('b' * 64, payload['artifact_digest'])
         for invalid in ({'RUN_ID': '123'}, {'ARTIFACT_NAME': 'only-name'}, {'SOURCE_SHA': 'main'}, {'APP': '../infra'}, {'RUN_ID': '0', 'ARTIFACT_NAME': 'binary', 'ARTIFACT_DIGEST': 'b' * 64}):
             with self.subTest(invalid=invalid):

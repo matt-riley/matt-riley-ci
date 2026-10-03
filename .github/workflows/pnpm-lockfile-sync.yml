@@ -1,111 +1,283 @@
 name: PNPM Lockfile Sync
-
-on:
+'on':
   workflow_call:
     inputs:
       runner:
-        description: 'Runner label'
+        description: Runner for read-only lockfile generation
         required: false
-        default: 'ubuntu-latest'
+        default: ubuntu-latest
         type: string
       working-directory:
-        description: 'Directory containing package.json and lockfile'
+        description: Directory containing package.json and lockfile
         required: false
-        default: '.'
+        default: .
         type: string
       node-version:
-        description: 'Node version'
+        description: Node version
         required: false
         default: '24'
         type: string
       pnpm-version:
-        description: 'pnpm version'
+        description: Optional npm version/range/tag override; otherwise packageManager must declare an exact pnpm version
         required: false
-        default: '10'
+        default: ''
         type: string
       lockfile-name:
-        description: 'Lockfile name to update and commit'
+        description: Lockfile name to update and commit
         required: false
-        default: 'pnpm-lock.yaml'
+        default: pnpm-lock.yaml
         type: string
       install-command:
-        description: 'Command used to refresh the lockfile'
+        description: Read-only job command to refresh the lockfile; pnpmfile hooks may execute without publication
+          credentials
         required: false
-        default: 'pnpm install --no-frozen-lockfile --lockfile-only'
+        default: pnpm install --no-frozen-lockfile --lockfile-only --ignore-scripts
         type: string
       commit-message:
-        description: 'Commit message for lockfile updates'
+        description: Commit message for lockfile updates
         required: false
         default: 'chore: sync pnpm lockfile'
         type: string
-      cancel-in-progress:
-        description: 'Cancel previous in-progress runs for same ref'
-        required: false
-        default: false
-        type: boolean
       timeout-minutes:
-        description: 'Job timeout in minutes'
+        description: Job timeout in minutes
         required: false
         default: 15
         type: number
+      release-branch-prefix:
+        description: Only sync same-repository PR branches with this prefix and the configured trusted author
+        type: string
+        required: false
+        default: release-please--
+      publish-runner:
+        description: Isolated ephemeral publication runner; must not share processes/filesystem with generation
+        required: false
+        default: ubuntu-latest
+        type: string
+      release-pr-author:
+        description: Exact trusted release-automation PR author login; configure your App/PAT identity explicitly
+        required: true
+        type: string
     secrets:
       token:
-        description: 'Token with contents:write to push branch updates'
+        description: Token with contents:write to push branch updates
         required: true
-
 jobs:
-  sync-lockfile:
-    if: ${{ github.head_ref != '' }}
+  generate:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login == inputs.release-pr-author && startsWith(github.head_ref, inputs.release-branch-prefix)
+      }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
-    concurrency:
-      group: ${{ format('{0}:{1}:{2}', github.workflow, github.repository, github.head_ref) }}
-      cancel-in-progress: ${{ inputs.cancel-in-progress }}
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      changed: ${{ steps.export.outputs.changed }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: ${{ github.head_ref }}
-          token: ${{ secrets.token }}
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: ${{ inputs.pnpm-version }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: pnpm
-          cache-dependency-path: ${{ format('{0}/{1}', inputs.working-directory, inputs.lockfile-name) }}
-
-      - name: Update lockfile
-        run: ${{ inputs.install-command }}
-        working-directory: ${{ inputs.working-directory }}
-
-      - name: Commit and push lockfile changes
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          COMMIT_MESSAGE: ${{ inputs.commit-message }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${{ inputs.lockfile-name }}"
-          git diff --cached --quiet || git commit -m "$COMMIT_MESSAGE"
-          git push origin "HEAD:${HEAD_REF}"
-
-      - name: Summary
-        if: ${{ always() }}
-        run: |
-          {
-            echo "### PNPM lockfile sync summary"
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- working-directory: \`${{ inputs.working-directory }}\`"
-            echo "- node-version: \`${{ inputs.node-version }}\`"
-            echo "- pnpm-version: \`${{ inputs.pnpm-version }}\`"
-            echo "- lockfile-name: \`${{ inputs.lockfile-name }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout branch
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        persist-credentials: false
+    - name: Validate sync inputs
+      env:
+        PREFIX: ${{ inputs.release-branch-prefix }}
+        LOCKFILE: ${{ inputs.lockfile-name }}
+        PNPM_VERSION: ${{ inputs.pnpm-version }}
+        WORKING_DIR: ${{ inputs.working-directory || '.' }}
+      shell: bash
+      run: |
+        test -n "$PREFIX" || { echo '::error::release-branch-prefix must not be empty'; exit 1; }
+        [[ "$LOCKFILE" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo '::error::lockfile-name must be a filename'; exit 1; }
+        [[ "$LOCKFILE" != . && "$LOCKFILE" != .. ]] || { echo '::error::lockfile-name cannot be a directory'; exit 1; }
+        python3 -I - <<'PY'
+        import json, os, pathlib, re
+        root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        directory = pathlib.Path(os.environ['WORKING_DIR'])
+        if directory.is_absolute() or '..' in directory.parts or any(c in str(directory) for c in '\r\n'):
+            raise SystemExit('working-directory must be relative and inside the repository')
+        project = (root / directory).resolve()
+        relative = project.relative_to(root)
+        if relative.parts and relative.parts[0] == '.git': raise SystemExit('Project must not select Git metadata')
+        package_json = project / 'package.json'
+        package_json.resolve().relative_to(root)
+        if not package_json.is_file(): raise SystemExit('package.json must be a file inside the repository')
+        if not os.environ['PNPM_VERSION']:
+            package = json.loads(package_json.read_text())
+            manager = package.get('packageManager', '')
+            version = re.fullmatch(r'pnpm@(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?', manager) if isinstance(manager, str) else None
+            if not version or any(part.isdigit() and len(part) > 1 and part.startswith('0') for part in (version[4] or '').split('.')):
+                raise SystemExit('Set pnpm-version or declare packageManager: pnpm@<exact-version> in package.json')
+        PY
+    - name: Snapshot original lockfile
+      id: snapshot
+      working-directory: ${{ inputs.working-directory || '.' }}
+      shell: bash
+      env:
+        LOCKFILE: ${{ inputs.lockfile-name }}
+      run: |
+        python3 -I - <<'PY'
+        import hashlib, os, pathlib
+        path = pathlib.Path(os.environ['LOCKFILE'])
+        path.resolve().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())
+        if path.is_symlink() or not path.is_file(): raise SystemExit('Lockfile must be a regular nonsymlink file inside the repository')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            out.write('sha256=' + hashlib.sha256(path.read_bytes()).hexdigest() + '\n')
+        PY
+    - name: Install pnpm
+      uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+      with:
+        version: ${{ inputs.pnpm-version }}
+        package_json_file: ${{ format('{0}/package.json', inputs.working-directory || '.') }}
+    - name: Set up Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        cache-dependency-path: ${{ format('{0}/{1}', inputs.working-directory || '.', inputs.lockfile-name) }}
+    - name: Update lockfile
+      run: |
+        bash --noprofile --norc -eo pipefail -c "$INSTALL_COMMAND"
+      working-directory: ${{ inputs.working-directory || '.' }}
+      shell: bash
+      env:
+        INSTALL_COMMAND: ${{ inputs.install-command }}
+    - name: Export changed lockfile
+      id: export
+      working-directory: ${{ inputs.working-directory || '.' }}
+      shell: bash
+      env:
+        LOCKFILE: ${{ inputs.lockfile-name }}
+        ORIGINAL_SHA: ${{ steps.snapshot.outputs.sha256 }}
+      run: |
+        python3 -I - <<'PY'
+        import hashlib, os, pathlib, shutil, tempfile, uuid
+        path = pathlib.Path(os.environ['LOCKFILE'])
+        path.resolve().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())
+        if path.is_symlink() or not path.is_file(): raise SystemExit('Generated lockfile must remain a regular nonsymlink file inside the repository')
+        changed = hashlib.sha256(path.read_bytes()).hexdigest() != os.environ['ORIGINAL_SHA']
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            out.write('changed=' + str(changed).lower() + '\n')
+            if changed:
+                directory = pathlib.Path(tempfile.mkdtemp(prefix='pnpm-lockfile-', dir=os.environ['RUNNER_TEMP']))
+                exported = directory / 'lockfile'
+                shutil.copyfile(path, exported)
+                out.write('path=' + str(exported) + '\nname=pnpm-lockfile-' + uuid.uuid4().hex + '\n')
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+            out.write('### PNPM lockfile generation\n\n- Result: ' + ('changed' if changed else 'unchanged') + '\n')
+        PY
+    - name: Upload lockfile for isolated publication
+      id: artifact
+      if: ${{ steps.export.outputs.changed == 'true' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ steps.export.outputs.name }}
+        path: ${{ steps.export.outputs.path }}
+        if-no-files-found: error
+        retention-days: 1
+  publish:
+    needs: generate
+    if: ${{ needs.generate.result == 'success' && needs.generate.outputs.changed == 'true' }}
+    runs-on: ${{ inputs.publish-runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+    - name: Create fresh publication workspace
+      id: workspace
+      shell: bash
+      run: |
+        python3 -I - <<'PY'
+        import os, pathlib, tempfile
+        # Never reuse the generator's checkout or .git configuration, including on a
+        # provisioned runner. Publication still requires an isolated ephemeral runner.
+        directory = pathlib.Path(tempfile.mkdtemp(prefix='.pnpm-publish-', dir=os.environ['GITHUB_WORKSPACE']))
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out: out.write('path=' + directory.name + '\n')
+        PY
+    - name: Checkout publication source
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        path: ${{ steps.workspace.outputs.path }}
+        persist-credentials: false
+    - name: Download generated lockfile
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        artifact-ids: ${{ needs.generate.outputs.artifact_id }}
+        merge-multiple: true
+        path: ${{ runner.temp }}/pnpm-lockfile-import
+    - name: Commit and push lockfile changes
+      working-directory: ${{ steps.workspace.outputs.path }}
+      env:
+        HEAD_REF: ${{ github.head_ref }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        LOCKFILE: ${{ inputs.lockfile-name }}
+        PUSH_TOKEN: ${{ secrets.token }}
+        WORKING_DIR: ${{ inputs.working-directory || '.' }}
+        IMPORT_DIR: ${{ runner.temp }}/pnpm-lockfile-import
+      run: |
+        # shellcheck disable=SC2016
+        # The helper expands PUSH_TOKEN only when git invokes it.
+        [[ "$LOCKFILE" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo '::error::lockfile-name must be a filename'; exit 1; }
+        [[ "$LOCKFILE" != . && "$LOCKFILE" != .. ]] || { echo '::error::lockfile-name cannot be a directory'; exit 1; }
+        git check-ref-format "refs/heads/$HEAD_REF"
+        lockfile_path="$(python3 -I - <<'PY'
+        import os, pathlib, shutil
+        root = pathlib.Path.cwd().resolve()
+        project = (root / os.environ['WORKING_DIR']).resolve()
+        relative = project.relative_to(root)
+        if relative.parts and relative.parts[0] == '.git': raise SystemExit('Project must not select Git metadata')
+        target = project / os.environ['LOCKFILE']
+        if target.is_symlink() or not target.is_file(): raise SystemExit('Publication target must be a regular nonsymlink lockfile')
+        source = pathlib.Path(os.environ['IMPORT_DIR']) / 'lockfile'
+        if source.is_symlink() or not source.is_file(): raise SystemExit('Imported artifact must contain a regular nonsymlink lockfile')
+        shutil.copyfile(source, target)
+        print(target.relative_to(root))
+        PY
+        )"
+        git config user.name 'github-actions[bot]'
+        git config user.email 'github-actions[bot]@users.noreply.github.com'
+        git add -- "$lockfile_path"
+        if git diff --cached --quiet --no-ext-diff --no-textconv; then echo 'status=unchanged' >> "$GITHUB_OUTPUT"; exit 0; fi
+        source_sha="$(git rev-parse HEAD)"
+        # No install/custom commands run in this job. Also disable Git hooks explicitly.
+        git -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -m "$COMMIT_MESSAGE" -- "$lockfile_path"
+        PUSH_REF="HEAD:refs/heads/$HEAD_REF"
+        # Atomically require the remote to retain the pinned checkout's head.
+        # The new commit is its direct child: this cannot rewrite branch history.
+        # Rewinds, advances and deletions must all reject stale publication.
+        # shellcheck disable=SC2016
+        authenticated_git() {
+          git -c core.hooksPath=/dev/null -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' "$@"
+        }
+        if authenticated_git push "--force-with-lease=refs/heads/$HEAD_REF:$source_sha" origin "$PUSH_REF"; then
+          echo 'status=pushed' >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        remote_head="$(authenticated_git ls-remote --refs origin "refs/heads/$HEAD_REF")" || {
+          echo '::error::Publication failed and the remote head could not be verified'; exit 1;
+        }
+        remote_sha="${remote_head%%$'\t'*}"
+        if [ "$remote_sha" != "$source_sha" ]; then
+          echo '::notice::Branch moved or was deleted; this lockfile run was superseded'
+          echo 'status=superseded' >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        echo '::error::Lockfile push failed while the source branch was unchanged'; exit 1
+      shell: bash
+      id: push
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: PNPM lockfile sync
+        FIELD_0: ${{ steps.push.outputs.status }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Result: %s\n" "$FIELD_0"
+        } >> "$GITHUB_STEP_SUMMARY"
+concurrency:
+  group: pnpm-sync:${{ github.repository }}:${{ github.head_ref }}
+  queue: max
+  cancel-in-progress: false
