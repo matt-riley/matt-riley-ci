@@ -58,7 +58,7 @@ name: Aube CI
         default: true
         type: boolean
       lockfile-path:
-        description: Explicit lockfile path relative to working-directory
+        description: Explicit lockfile path relative to working-directory; parent paths may select a workspace lockfile inside the repository
         required: false
         default: ''
         type: string
@@ -168,8 +168,9 @@ jobs:
             path = pathlib.Path(lockfile)
             if path.name not in supported: raise SystemExit('Select a supported lockfile filename')
             root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
-            if path.is_absolute() or '..' in path.parts or '\n' in lockfile or '\r' in lockfile: raise SystemExit('Invalid lockfile path')
-            path.resolve().relative_to(root)
+            if path.is_absolute() or '\n' in lockfile or '\r' in lockfile: raise SystemExit('Invalid lockfile path')
+            relative = path.resolve().relative_to(root)
+            if relative.parts and relative.parts[0] == '.git': raise SystemExit('Lockfile must not select Git metadata')
             if path.is_symlink() or not path.is_file(): raise SystemExit('Lockfile must be a regular nonsymlink file inside the repository')
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             executable = str(bool(path.stat().st_mode & stat.S_IXUSR)).lower()
@@ -190,7 +191,7 @@ jobs:
       with:
         version: ${{ inputs.aube-version }}
         node-version: ''
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: ${{ inputs.working-directory || '.' }}
     - name: Install dependencies
       id: install
       env:
@@ -286,4 +287,4 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: ${{ inputs.working-directory || '.' }}

@@ -236,7 +236,6 @@ jobs:
           fi
           printf 'Retrying tap publication after concurrent update (attempt %s)\n' "$attempt"
         done
-        echo '::error::Tap changed repeatedly; publication retry limit reached'; exit 1
       shell: bash
     - name: Summary
       if: ${{ always() }}

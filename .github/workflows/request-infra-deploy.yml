@@ -164,7 +164,7 @@ jobs:
         if os.environ["ARTIFACT_RUN_ID"] != "0":
             client_payload.update(
                 {
-                    "artifact_run_id": os.environ["ARTIFACT_RUN_ID"],
+                    "artifact_run_id": int(os.environ["ARTIFACT_RUN_ID"]),
                     "artifact_name": os.environ["ARTIFACT_NAME"],
                     "artifact_digest": os.environ["ARTIFACT_DIGEST"],
                 }

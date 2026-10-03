@@ -18,7 +18,7 @@ name: PNPM Lockfile Sync
         default: '24'
         type: string
       pnpm-version:
-        description: Optional override; otherwise packageManager in working-directory/package.json selects pnpm
+        description: Optional npm version/range/tag override; otherwise packageManager must declare an exact pnpm version
         required: false
         default: ''
         type: string
@@ -55,8 +55,7 @@ name: PNPM Lockfile Sync
         type: string
       release-pr-author:
         description: Exact trusted release-automation PR author login; configure your App/PAT identity explicitly
-        required: false
-        default: github-actions[bot]
+        required: true
         type: string
     secrets:
       token:
@@ -92,7 +91,7 @@ jobs:
         [[ "$LOCKFILE" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo '::error::lockfile-name must be a filename'; exit 1; }
         [[ "$LOCKFILE" != . && "$LOCKFILE" != .. ]] || { echo '::error::lockfile-name cannot be a directory'; exit 1; }
         python3 -I - <<'PY'
-        import json, os, pathlib
+        import json, os, pathlib, re
         root = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
         directory = pathlib.Path(os.environ['WORKING_DIR'])
         if directory.is_absolute() or '..' in directory.parts or any(c in str(directory) for c in '\r\n'):
@@ -105,8 +104,10 @@ jobs:
         if not package_json.is_file(): raise SystemExit('package.json must be a file inside the repository')
         if not os.environ['PNPM_VERSION']:
             package = json.loads(package_json.read_text())
-            if not package.get('packageManager', '').startswith('pnpm@'):
-                raise SystemExit('Set pnpm-version or declare packageManager: pnpm@<version> in package.json')
+            manager = package.get('packageManager', '')
+            version = re.fullmatch(r'pnpm@(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?', manager) if isinstance(manager, str) else None
+            if not version or any(part.isdigit() and len(part) > 1 and part.startswith('0') for part in (version[4] or '').split('.')):
+                raise SystemExit('Set pnpm-version or declare packageManager: pnpm@<exact-version> in package.json')
         PY
     - name: Snapshot original lockfile
       id: snapshot
@@ -246,8 +247,21 @@ jobs:
         # The new commit is its direct child: this cannot rewrite branch history.
         # Rewinds, advances and deletions must all reject stale publication.
         # shellcheck disable=SC2016
-        git -c core.hooksPath=/dev/null -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' push "--force-with-lease=refs/heads/$HEAD_REF:$source_sha" origin "$PUSH_REF"
-        echo 'status=pushed' >> "$GITHUB_OUTPUT"
+        authenticated_git() {
+          git -c core.hooksPath=/dev/null -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' "$@"
+        }
+        if authenticated_git push "--force-with-lease=refs/heads/$HEAD_REF:$source_sha" origin "$PUSH_REF"; then
+          echo 'status=pushed' >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        remote_head="$(authenticated_git ls-remote --refs origin "refs/heads/$HEAD_REF")" || {
+          echo '::error::Publication failed and the remote head could not be verified'; exit 1;
+        }
+        remote_sha="${remote_head%%$'\t'*}"
+        if [ "$remote_sha" != "$source_sha" ]; then
+          echo '::notice::Branch moved or was deleted; this lockfile run was superseded'
+          echo 'status=superseded' >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        echo '::error::Lockfile push failed while the source branch was unchanged'; exit 1
       shell: bash
       id: push
     - name: Summary

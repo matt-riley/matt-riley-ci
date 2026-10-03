@@ -13,3 +13,7 @@ env = { PATH = "{{config_root}}/.venv/bin:{{env.PATH}}" }
 
 [tasks.ci]
 depends = ["validate-workflows"]
+
+[tasks.reference]
+description = "Regenerate the workflow reference using the installed validation environment"
+run = ".venv/bin/python -B scripts/reference.py"

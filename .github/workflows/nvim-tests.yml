@@ -73,13 +73,12 @@ jobs:
         [[ "$VERSION" = v0.12.5 || "$VERSION" = nightly || "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::Release overrides require neovim-sha256'; exit 1; }
         install_dir="$RUNNER_TEMP/neovim"
         mkdir -p "$install_dir"
-        gh release download "$VERSION" --repo neovim/neovim --pattern "nvim-$platform.tar.gz" --dir "$install_dir"
-        if [ "$VERSION" = nightly ] && [ -z "$EXPECTED_SHA256" ]; then
-          gh release view nightly --repo neovim/neovim --json assets > "$install_dir/metadata.json"
+        if [ "$VERSION" != nightly ] || [ -n "$EXPECTED_SHA256" ]; then
+          gh release download "$VERSION" --repo neovim/neovim --pattern "nvim-$platform.tar.gz" --dir "$install_dir"
         fi
         export ASSET_NAME="nvim-$platform.tar.gz"
         python3 - <<'PY'
-        import hashlib, json, os, pathlib, re
+        import hashlib, json, os, pathlib, re, subprocess
         pinned = {
             'nvim-linux-x86_64.tar.gz': 'bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875',
             'nvim-linux-arm64.tar.gz': '1aa5ca085249580ae0f91eb14f27ec0919773ff2d99a163d03f3d6c21ac29725',
@@ -88,13 +87,32 @@ jobs:
         }
         e = os.environ
         directory = pathlib.Path(e['RUNNER_TEMP']) / 'neovim'
+        archive = directory / e['ASSET_NAME']
         expected = e['EXPECTED_SHA256'] or (pinned[e['ASSET_NAME']] if e['VERSION'] == 'v0.12.5' else '')
         if not expected and e['VERSION'] == 'nightly':
-            assets = json.loads((directory / 'metadata.json').read_text())['assets']
-            digest = next((a.get('digest') for a in assets if a['name'] == e['ASSET_NAME']), None) or ''
-            if digest.startswith('sha256:'): expected = digest.removeprefix('sha256:')
+            # Resolve the asset ID and digest together. A replacement can delete
+            # that ID, so allow one fresh snapshot without relaxing verification.
+            for attempt in range(2):
+                try:
+                    assets = json.loads(subprocess.check_output(['gh', 'api', 'repos/neovim/neovim/releases/tags/nightly'], text=True))['assets']
+                    matching = [a for a in assets if a['name'] == e['ASSET_NAME']]
+                    if len(matching) != 1: raise SystemExit('Nightly requires exactly one matching release asset')
+                    asset = matching[0]
+                    digest = asset.get('digest') or ''
+                    expected = digest.removeprefix('sha256:') if digest.startswith('sha256:') else ''
+                    if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Nightly requires GitHub SHA-256 metadata')
+                    if type(asset.get('id')) is not int or asset['id'] <= 0: raise SystemExit('Nightly requires a valid release asset ID')
+                    with archive.open('wb') as out:
+                        subprocess.run(['gh', 'api', 'repos/neovim/neovim/releases/assets/' + str(asset['id']), '-H', 'Accept: application/octet-stream'], stdout=out, check=True)
+                except subprocess.CalledProcessError:
+                    if attempt == 1: raise SystemExit('Nightly download failed after one retry')
+                    print('::notice::Nightly asset unavailable; retrying with a fresh metadata snapshot')
+                    continue
+                if hashlib.sha256(archive.read_bytes()).hexdigest() == expected: break
+                if attempt == 1: raise SystemExit('Neovim asset checksum mismatch')
+                print('::notice::Nightly checksum mismatch; retrying with a fresh metadata snapshot')
         if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Release overrides require neovim-sha256; nightly requires GitHub SHA-256 metadata')
-        if hashlib.sha256((directory / e['ASSET_NAME']).read_bytes()).hexdigest() != expected: raise SystemExit('Neovim asset checksum mismatch')
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != expected: raise SystemExit('Neovim asset checksum mismatch')
         PY
         tar -xzf "$install_dir/nvim-$platform.tar.gz" -C "$install_dir"
         echo "$install_dir/nvim-$platform/bin" >> "$GITHUB_PATH"
@@ -159,4 +177,4 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: ${{ inputs.working-directory || '.' }}

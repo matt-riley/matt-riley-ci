@@ -263,5 +263,6 @@ jobs:
     environment: ${{ inputs.environment }}
     concurrency:
       group: goreleaser:${{ github.repository }}
+      queue: max
       cancel-in-progress: false
     if: ${{ !inputs.snapshot }}

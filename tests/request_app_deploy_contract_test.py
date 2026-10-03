@@ -55,7 +55,7 @@ class RequestAppDeployContractTest(unittest.TestCase):
         result = self.run_dispatch(RUN_ID='123', ARTIFACT_NAME='waffle-linux-amd64', ARTIFACT_DIGEST='b' * 64)
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)['client_payload']
-        self.assertEqual('123', payload['artifact_run_id'])
+        self.assertEqual(123, payload['artifact_run_id'])
         self.assertEqual('b' * 64, payload['artifact_digest'])
         for invalid in ({'RUN_ID': '123'}, {'ARTIFACT_NAME': 'only-name'}, {'SOURCE_SHA': 'main'}, {'APP': '../infra'}, {'RUN_ID': '0', 'ARTIFACT_NAME': 'binary', 'ARTIFACT_DIGEST': 'b' * 64}):
             with self.subTest(invalid=invalid):

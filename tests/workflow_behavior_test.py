@@ -41,11 +41,11 @@ def python_heredocs(script):
         yield '\n'.join(line.lstrip('\t') for line in body.splitlines()) if match['tabs'] else body
 
 
-def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, head_ref='release-please--main', author='github-actions[bot]', job_success=True, **inputs):
+def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, head_ref='release-please--main', author='github-actions[bot]', job_success=True, sha='a' * 40, head_sha='b' * 40, **inputs):
     """Evaluate the simple boolean/string GitHub expressions used by these guards."""
-    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref, run_id=run_id, run_attempt=run_attempt, head_ref=head_ref,
+    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref, run_id=run_id, run_attempt=run_attempt, head_ref=head_ref, sha=sha,
         event=SimpleNamespace(repository=SimpleNamespace(default_branch='main'),
-            pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=source)), user=SimpleNamespace(login=author))))
+            pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=source), sha=head_sha), user=SimpleNamespace(login=author))))
     def evaluate(match):
         code = match.group(1).replace('&&', 'and').replace('||', 'or')
         code = re.sub(r'!(?!=)', 'not ', code)
@@ -53,7 +53,7 @@ def expression(value, event='push', ref='refs/heads/main', source='owner/project
         code = re.sub(r'\bsteps\.([A-Za-z0-9_-]+)', lambda item: 'steps.' + item.group(1).replace('-', '_'), code)
         code = re.sub(r'\.outputs\.([A-Za-z0-9_-]+)', lambda item: '.outputs.' + item.group(1).replace('-', '_'), code)
         steps = steps_context or SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
-        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: job_success, 'failure': lambda: not job_success, 'always': lambda: True, 'format': lambda text, *args: text.format(*args), 'startsWith': lambda text, prefix: text.startswith(prefix)}))
+        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: job_success, 'failure': lambda: not job_success, 'always': lambda: True, 'hashFiles': lambda *patterns: '|'.join(patterns), 'format': lambda text, *args: text.format(*args), 'startsWith': lambda text, prefix: text.startswith(prefix)}))
     return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', evaluate, value)
 
 
@@ -206,6 +206,41 @@ run = "test -f count"
         for name, variables in [('go-ci.yml', dict(COVERAGE_PATHS='.', FAILURE_PATHS='')), ('aube-ci.yml', dict(COVERAGE_PATHS='.', FAILURE_PATHS='')), ('ci.yml', dict(BUILD_PATHS='.', FAILURE_PATHS=''))]:
             self.assertNotEqual(0, self.run_step(name, 'paths', **variables).returncode)
 
+    def test_cache_detection_skips_tools_installed_later_by_consumer_tasks(self):
+        (self.bin / 'bash').symlink_to('/bin/bash')
+        (self.bin / 'python3').symlink_to(sys.executable)
+        for lockfile in ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'go.mod']:
+            with self.subTest(lockfile=lockfile):
+                path = self.project / lockfile
+                path.touch()
+                Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+                result = self.run_step('ci.yml', 'cache-metadata', PATH=str(self.bin), EXTRA_PATHS='', PLAYWRIGHT_CACHE='false')
+                self.okay(result)
+                self.assertIn('Skipping automatic', result.stdout)
+                self.assertIn('build_cache=\n', Path(self.env['GITHUB_OUTPUT']).read_text())
+                path.unlink()
+        # A present but uninitialized Corepack shim must not block the tasks either.
+        (self.project / 'pnpm-lock.yaml').touch()
+        self.stub('pnpm', 'import sys\nsys.exit(1)\n')
+        self.okay(self.run_step('ci.yml', 'cache-metadata', PATH=str(self.bin), EXTRA_PATHS='.cache/custom', PLAYWRIGHT_CACHE='false'))
+        self.assertIn(str(self.project / '.cache/custom'), Path(self.env['GITHUB_OUTPUT']).read_text())
+
+    def test_empty_project_directory_normalizes_workflows_and_cache_patterns(self):
+        for name in ['ci.yml', 'aube-ci.yml', 'nvim-format.yml', 'nvim-lint.yml', 'nvim-tests.yml']:
+            for job in workflow(name)['jobs'].values():
+                directory = job.get('defaults', {}).get('run', {}).get('working-directory')
+                if directory:
+                    self.assertEqual('.', expression(directory, **{'working-directory': ''}), name)
+                    self.assertEqual('nested', expression(directory, **{'working-directory': 'nested'}), name)
+        self.assertEqual('.', expression(step('ci.yml', 'Install mise')['with']['working_directory'], **{'working-directory': ''}))
+        for name in ['dependencies', 'go-build-cache']:
+            config = step('ci.yml', name)['with']
+            for field in ['key', 'restore-keys']:
+                for call in re.findall(r'\$\{\{\s*hashFiles\(.*?\)\s*\}\}', config.get(field, ''), re.S):
+                    empty = expression(call, **{'working-directory': '', 'cache-dependency-path': ''})
+                    root = expression(call, **{'working-directory': '.', 'cache-dependency-path': ''})
+                    self.assertEqual(root, empty, call)
+
     def test_yarn_cache_metadata_registers_classic_and_modern_stores(self):
         (self.project / 'yarn.lock').write_text('')
         for modern in [True, False]:
@@ -352,8 +387,9 @@ run = "test -f count"
         digest = hashlib.sha256(b'fixture asset').hexdigest()
         self.stub('gh', '''import json, os, pathlib, sys
 a = sys.argv
-if a[1:3] == ['release', 'view']:
-    print(json.dumps({'assets': [{'name':os.environ.get('METADATA_NAME', 'nvim-linux-x86_64.tar.gz'), 'digest':'sha256:''' + digest + ''''}]}))
+if a[1:3] == ['release', 'view'] or (a[1] == 'api' and a[2].endswith('/tags/nightly')):
+    print(json.dumps({'assets': [{'id':123, 'name':os.environ.get('METADATA_NAME', 'nvim-linux-x86_64.tar.gz'), 'digest':'sha256:''' + digest + ''''}]}))
+elif a[1] == 'api': sys.stdout.buffer.write(b'fixture asset')
 else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'fixture asset')
 ''')
         for command in ['tar', 'unzip']:
@@ -378,6 +414,42 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.root / 'extracted').exists())
         self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
+
+    def test_neovim_nightly_download_uses_snapshot_asset_id_and_bounded_retry(self):
+        import hashlib
+        old_digest = hashlib.sha256(b'old nightly').hexdigest()
+        new_digest = hashlib.sha256(b'new nightly').hexdigest()
+        self.stub('gh', '''import json, os, pathlib, sys
+a = sys.argv[1:]
+root = pathlib.Path(os.environ['RUNNER_TEMP'])
+with (root / 'nightly-calls').open('a') as out: out.write(' '.join(a) + '\\n')
+if a[:2] == ['release', 'download']:
+    pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'old nightly')
+elif a[:2] == ['release', 'view']:
+    print(json.dumps({'assets':[{'name':'nvim-linux-x86_64.tar.gz','id':2,'digest':'sha256:''' + new_digest + ''''}]}))
+elif a[0] == 'api' and a[1].endswith('/tags/nightly'):
+    count = root / 'metadata-count'
+    index = int(count.read_text()) + 1 if count.exists() else 1
+    count.write_text(str(index))
+    print(json.dumps({'assets':[{'name':'nvim-linux-x86_64.tar.gz','id':index,'digest':'sha256:' + (''' + repr(old_digest) + ''' if index == 1 else ''' + repr(new_digest) + ''')}]}))
+elif a[0] == 'api' and '/assets/' in a[1]:
+    index = int(a[1].split('/')[-1])
+    if os.environ.get('FAIL_FIRST') == 'true' and index == 1: sys.exit(1)
+    sys.stdout.buffer.write(b'corrupt' if os.environ.get('CORRUPT') == 'true' else b'old nightly' if index == 1 else b'new nightly')
+else: sys.exit('unexpected request')
+''')
+        self.stub('tar', "import os, pathlib\npathlib.Path(os.environ['RUNNER_TEMP'], 'extracted').touch()\n")
+        for fail_first, corrupt, succeeds, requests in [('false', 'false', True, 1), ('true', 'false', True, 2), ('false', 'true', False, 2)]:
+            for path in ['metadata-count', 'nightly-calls', 'extracted', 'path']:
+                (self.root / path).unlink(missing_ok=True)
+            result = self.run_step('nvim-tests.yml', 'Install Neovim', VERSION='nightly', EXPECTED_SHA256='', FAIL_FIRST=fail_first, CORRUPT=corrupt)
+            self.assertEqual(succeeds, result.returncode == 0, result.stdout + result.stderr)
+            calls = (self.root / 'nightly-calls').read_text().splitlines()
+            self.assertTrue(calls[0].startswith('api repos/neovim/neovim/releases/tags/nightly'), calls)
+            self.assertEqual(requests, sum('/tags/nightly' in c for c in calls))
+            self.assertFalse(any('release download' in c for c in calls))
+            self.assertEqual(succeeds, (self.root / 'extracted').exists())
+            self.assertEqual(succeeds, Path(self.env['GITHUB_PATH']).exists())
 
     def test_validation_runner_jobs_have_read_only_permissions(self):
         suite = workflow('contract-tests.yml')
@@ -483,6 +555,29 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         (self.project / 'yarn.lock').unlink()
         (self.project / 'package.json').write_text('{"scripts":{"--help":"echo skipped"}}')
         self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, TEST_SCRIPT='--help')).returncode)
+
+    def test_aube_accepts_tracked_workspace_root_lockfile_and_rejects_escape(self):
+        def git(*args):
+            return subprocess.run(['git', *args], cwd=self.root, check=True, capture_output=True)
+        git('init', '-q')
+        (self.project / 'package.json').write_text('{"scripts":{"test":"echo okay"}}')
+        lockfile = self.root / 'pnpm-lock.yaml'
+        lockfile.write_text('lockfileVersion: 9')
+        git('add', '.')
+        args = dict(LOCKFILE_PATH='../pnpm-lock.yaml', REQUIRE_LOCKFILE='true', VERIFY_LOCKFILE='true', RUN_LINT='false', RUN_BUILD='false', RUN_TEST='true', TEST_SCRIPT='test')
+        self.okay(self.run_step('aube-ci.yml', 'lockfile', **args))
+        values = dict(line.split('=', 1) for line in Path(self.env['GITHUB_OUTPUT']).read_text().splitlines())
+        self.okay(self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', LOCKFILE=values['lockfile'], EXPECTED_SHA256=values['sha256'], EXPECTED_EXECUTABLE=values['executable']))
+        lockfile.write_text('changed')
+        self.assertNotEqual(0, self.run_step('aube-ci.yml', 'Verify lockfile is unchanged', LOCKFILE=values['lockfile'], EXPECTED_SHA256=values['sha256'], EXPECTED_EXECUTABLE=values['executable']).returncode)
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / 'pnpm-lock.yaml'
+            external.write_text('outside')
+            for path in [str(external), os.path.relpath(external, self.project)]:
+                self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **dict(args, LOCKFILE_PATH=path)).returncode)
+            lockfile.unlink()
+            lockfile.symlink_to(external)
+            self.assertNotEqual(0, self.run_step('aube-ci.yml', 'lockfile', **args).returncode)
 
     def test_aube_lockfile_check_detects_committed_or_index_hidden_changes(self):
         import hashlib
@@ -637,7 +732,8 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
             if run == '0':
                 self.assertNotIn('artifact_run_id', payload)
             else:
-                self.assertEqual(run, payload['artifact_run_id'])
+                self.assertEqual(int(run), payload['artifact_run_id'])
+                self.assertIsInstance(payload['artifact_run_id'], int)
                 self.assertEqual('build', payload['artifact_name'])
                 self.assertEqual('b' * 64, payload['artifact_digest'])
             request = json.loads((self.root / 'request.json').read_text())
@@ -743,7 +839,7 @@ os.execv({real_git!r}, [{real_git!r}] + a)
     def test_pnpm_sync_requires_a_declared_or_explicit_version_before_setup(self):
         package = self.project / 'package.json'
         args = dict(PREFIX='release-please--', LOCKFILE='pnpm-lock.yaml', PNPM_VERSION='', WORKING_DIR=self.project.name)
-        for manager, explicit, valid in [('', '', False), ('npm@10', '', False), ('pnpm@10.0.0', '', True), ('', '10.0.0', True)]:
+        for manager, explicit, valid in [('', '', False), ('npm@10', '', False), ('pnpm@', '', False), ('pnpm@garbage', '', False), ('pnpm@10', '', False), ('pnpm@01.0.0', '', False), ('pnpm@10.0.0-01', '', False), ('pnpm@10.0.0', '', True), ('pnpm@10.0.0-rc.1', '', True), ('pnpm@10.0.0+sha512.abcd', '', True), ('', '10.0.0', True), ('', '^10.0.0', True), ('', 'latest', True)]:
             package.write_text(json.dumps({'packageManager': manager}))
             result = self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', **dict(args, PNPM_VERSION=explicit))
             self.assertEqual(valid, result.returncode == 0, result.stdout + result.stderr)
@@ -771,6 +867,9 @@ os.execv({real_git!r}, [{real_git!r}] + a)
         jobs = workflow('pnpm-lockfile-sync.yml')['jobs']
         generate = jobs.get('generate', jobs.get('sync-lockfile'))
         guard = generate['if']
+        author_input = workflow('pnpm-lockfile-sync.yml')['on']['workflow_call']['inputs']['release-pr-author']
+        self.assertTrue(author_input['required'])
+        self.assertNotIn('default', author_input)
         inputs = {'release-branch-prefix': 'release-please--', 'release-pr-author': 'github-actions[bot]'}
         for event, source, head, author, allowed in [('pull_request', 'owner/project', 'release-please--main', 'github-actions[bot]', True), ('pull_request', 'owner/project', 'release-please--main', 'contributor', False), ('pull_request', 'fork/project', 'release-please--main', 'github-actions[bot]', False), ('pull_request', 'owner/project', 'feature', 'github-actions[bot]', False), ('pull_request_target', 'owner/project', 'release-please--main', 'github-actions[bot]', False)]:
             self.assertEqual(str(allowed), expression(guard, event=event, source=source, head_ref=head, author=author, **inputs))
@@ -860,14 +959,40 @@ os.execv({real_git!r}, [{real_git!r}] + a)
                     git('push', '-q', '--force', 'origin', target + ':' + ref)
                 Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
                 result = self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='fixture-secret', WORKING_DIR='.', IMPORT_DIR=str(imported))
-                self.assertEqual(target == source, result.returncode == 0, result.stdout + result.stderr)
+                self.okay(result)
                 actual = git('ls-remote', 'origin', ref).split()
                 if target == source:
                     self.assertEqual(source, git('rev-parse', 'HEAD^'))
                     self.assertEqual('after', git('--git-dir', str(remote), 'show', ref + ':pnpm-lock.yaml'))
                 else:
                     self.assertEqual([target, ref] if target else [], actual)
-                    self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
+                    self.assertIn('status=superseded', Path(self.env['GITHUB_OUTPUT']).read_text())
+
+    def test_lockfile_publication_does_not_hide_push_or_remote_read_failures(self):
+        real_git = shutil.which('git')
+        def git(*args):
+            return subprocess.check_output([real_git, *args], cwd=self.project, text=True, stderr=subprocess.STDOUT).strip()
+        remote = self.root / 'denied-remote.git'
+        git('init', '--bare', '-q', str(remote))
+        git('init', '-q')
+        for key, value in [('user.name', 'Fixture'), ('user.email', 'fixture@example.test'), ('commit.gpgsign', 'false')]: git('config', key, value)
+        (self.project / 'pnpm-lock.yaml').write_text('before')
+        git('add', '.')
+        git('commit', '-qm', 'event head')
+        source = git('rev-parse', 'HEAD')
+        git('remote', 'add', 'origin', str(remote))
+        git('push', '-q', 'origin', 'HEAD:refs/heads/release-please--main')
+        imported = self.root / 'imported'
+        imported.mkdir()
+        (imported / 'lockfile').write_text('after')
+        self.stub('git', 'import os, sys\na=sys.argv[1:]\nif "push" in a or ("ls-remote" in a and os.environ["FAIL_READ"] == "true"): sys.exit(1)\nos.execv(' + repr(real_git) + ', [' + repr(real_git) + '] + a)\n')
+        for fail_read in ['false', 'true']:
+            git('reset', '--hard', source)
+            Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+            result = self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='fixture-secret', WORKING_DIR='.', IMPORT_DIR=str(imported), FAIL_READ=fail_read)
+            self.assertNotEqual(0, result.returncode)
+            self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
+            self.assertEqual(source, git('ls-remote', 'origin', 'refs/heads/release-please--main').split()[0])
 
     def test_lockfile_handoff_exports_only_changed_regular_bytes(self):
         import hashlib
@@ -964,6 +1089,7 @@ os.execv({real_git!r}, [{real_git!r}] + a)
     def test_equivalent_release_targets_and_acl_actions_share_the_correct_queues(self):
         release = workflow('release-please.yml')['jobs']['release-please']['concurrency']['group']
         self.assertEqual(expression(release, **{'target-branch': ''}), expression(release, **{'target-branch': 'main'}))
+        self.assertEqual('max', workflow('release-please.yml')['jobs']['release-please']['concurrency'].get('queue'))
         acl = workflow('tailscale-acl.yml')['jobs']['acl']['concurrency']['group']
         auto_apply = expression(acl, action='', tailnet='example')
         explicit_apply = expression(acl, action='apply', tailnet='example')
@@ -1039,6 +1165,15 @@ if 'ls-remote' in args:
         guard = workflow('tailscale-acl.yml')['jobs']['acl']['if']
         for event, source, allowed in [('pull_request', 'fork/project', False), ('pull_request_target', 'fork/project', False), ('pull_request', 'owner/project', True), ('push', 'owner/project', True), ('workflow_dispatch', 'owner/project', True)]:
             self.assertEqual(str(allowed), expression(guard, event=event, source=source))
+
+    def test_tailscale_checks_proposed_policy_on_same_repository_pr_target(self):
+        checkout = step('tailscale-acl.yml', 'Checkout')['with']
+        self.assertIn('ref', checkout)
+        for event, expected in [('pull_request_target', 'b' * 40), ('pull_request', 'a' * 40), ('push', 'a' * 40), ('workflow_dispatch', 'a' * 40)]:
+            self.assertEqual(expected, expression(checkout['ref'], event=event))
+        guard = workflow('tailscale-acl.yml')['jobs']['acl']['if']
+        self.assertEqual('False', expression(guard, event='pull_request_target', source='fork/project'))
+        self.assertEqual('True', expression(guard, event='pull_request_target', source='owner/project'))
 
     def test_major_tag_push_failure_and_remote_mismatch_fail(self):
         checkout = step('repository-release-please.yml', 'Checkout')['with']
@@ -1143,6 +1278,12 @@ class Policy(unittest.TestCase):
             for permissions, rendered in [('read-all', '`read-all`'), ('write-all', '`write-all`'), ({}, '`{}`')]:
                 (workflows / 'fixture.yml').write_text(yaml.safe_dump({'name': 'Fixture', 'on': {'workflow_call': {}}, 'jobs': {'run': {'permissions': permissions}}}))
                 self.assertIn(rendered, reference.render())
+
+    def test_reference_normalizes_all_line_endings_and_escapes_table_pipes(self):
+        spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')
+        reference = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reference)
+        self.assertEqual('one<br>two<br>three<br>four\\|five', reference.cell('one\r\ntwo\rthree\nfour|five'))
 
     def test_reference_handles_unnamed_workflows_and_distinguishes_inherited_permissions(self):
         spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')

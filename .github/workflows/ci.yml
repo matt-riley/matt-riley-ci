@@ -211,7 +211,7 @@ jobs:
     - name: Install mise
       uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea
       with:
-        working_directory: ${{ inputs.working-directory }}
+        working_directory: ${{ inputs.working-directory || '.' }}
         cache: ${{ inputs.cache && ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.event.pull_request.head.repo.full_name == github.repository) }}
         cache_save: ${{ inputs.cache && inputs.save-cache && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
           && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
@@ -236,31 +236,45 @@ jobs:
         python3 - <<'PY'
         import hashlib, json, os, pathlib, shutil, subprocess
         def command(*args):
-            return subprocess.check_output(args, text=True).strip()
+            return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
+        def detect(manager):
+            try:
+                if manager == 'pnpm':
+                    return [command('pnpm', 'store', 'path', '--silent')], ['pnpm=' + command('pnpm', '--version')], ''
+                if manager == 'npm':
+                    return [command('npm', 'config', 'get', 'cache')], ['node=' + command('node', '--version')], ''
+                if manager == 'yarn':
+                    version = command('yarn', '--version')
+                    try:
+                        cache = command('yarn', 'config', 'get', 'cacheFolder')
+                        if cache == 'undefined': raise ValueError('classic yarn')
+                    except (ValueError, subprocess.CalledProcessError):
+                        cache = command('yarn', 'cache', 'dir')
+                    return [cache], ['yarn=' + version], ''
+                if manager == 'bun':
+                    return [str(pathlib.Path.home() / '.bun/install/cache')], ['bun=' + command('bun', '--version')], ''
+                return [command('go', 'env', 'GOMODCACHE')], ['go=' + command('go', 'env', 'GOVERSION')], command('go', 'env', 'GOCACHE')
+            except (OSError, subprocess.CalledProcessError):
+                print('::notice::Skipping automatic ' + manager + ' cache metadata; tool unavailable before consumer tasks')
+                return [], [], ''
         dependency_paths = []
         versions = []
+        manager = ''
         if pathlib.Path('pnpm-lock.yaml').is_file():
-            dependency_paths.append(command('pnpm', 'store', 'path', '--silent'))
-            versions.append('pnpm=' + command('pnpm', '--version'))
+            manager = 'pnpm'
         elif pathlib.Path('package-lock.json').is_file() or pathlib.Path('npm-shrinkwrap.json').is_file():
-            dependency_paths.append(command('npm', 'config', 'get', 'cache'))
-            versions.append('node=' + command('node', '--version'))
+            manager = 'npm'
         elif pathlib.Path('yarn.lock').is_file():
-            versions.append('yarn=' + command('yarn', '--version'))
-            try:
-                yarn_cache = command('yarn', 'config', 'get', 'cacheFolder')
-                if yarn_cache == 'undefined': raise ValueError('classic yarn')
-            except (ValueError, subprocess.CalledProcessError):
-                yarn_cache = command('yarn', 'cache', 'dir')
-            dependency_paths.append(yarn_cache)
+            manager = 'yarn'
         elif pathlib.Path('bun.lock').is_file() or pathlib.Path('bun.lockb').is_file():
-            dependency_paths.append(str(pathlib.Path.home() / '.bun/install/cache'))
-            versions.append('bun=' + command('bun', '--version'))
+            manager = 'bun'
+        if manager:
+            dependency_paths, versions, _ = detect(manager)
         build_cache = ''
         if pathlib.Path('go.mod').is_file():
-            dependency_paths.append(command('go', 'env', 'GOMODCACHE'))
-            build_cache = command('go', 'env', 'GOCACHE')
-            versions.append('go=' + command('go', 'env', 'GOVERSION'))
+            go_paths, go_versions, build_cache = detect('go')
+            dependency_paths += go_paths
+            versions += go_versions
         if os.environ['PLAYWRIGHT_CACHE'] == 'true':
             for location in ('.cache/ms-playwright', 'Library/Caches/ms-playwright'):
                 dependency_paths.append(str(pathlib.Path.home() / location))
@@ -285,9 +299,9 @@ jobs:
       with:
         path: ${{ steps.cache-metadata.outputs.paths }}
         key: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{ steps.cache-metadata.outputs.tools
-          }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory), format('{0}/**/go.sum', inputs.working-directory),
-          format('{0}/**/*lock*', inputs.working-directory), format('{0}/mise.toml', inputs.working-directory),
-          format('{0}/.tool-versions', inputs.working-directory), inputs.cache-dependency-path) }}
+          }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'), format('{0}/**/go.sum', inputs.working-directory || '.'),
+          format('{0}/**/*lock*', inputs.working-directory || '.'), format('{0}/mise.toml', inputs.working-directory || '.'),
+          format('{0}/.tool-versions', inputs.working-directory || '.'), inputs.cache-dependency-path) }}
         restore-keys: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{
           steps.cache-metadata.outputs.tools }}-
     - name: Restore Go build cache
@@ -297,14 +311,14 @@ jobs:
       with:
         path: ${{ steps.cache-metadata.outputs.build_cache }}
         key: build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.tools
-          }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory), format('{0}/**/go.sum', inputs.working-directory),
-          format('{0}/**/*lock*', inputs.working-directory), format('{0}/mise.toml', inputs.working-directory),
-          format('{0}/.tool-versions', inputs.working-directory), inputs.cache-dependency-path) }}-${{ github.sha
+          }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'), format('{0}/**/go.sum', inputs.working-directory || '.'),
+          format('{0}/**/*lock*', inputs.working-directory || '.'), format('{0}/mise.toml', inputs.working-directory || '.'),
+          format('{0}/.tool-versions', inputs.working-directory || '.'), inputs.cache-dependency-path) }}-${{ github.sha
           }}
         restore-keys: build-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{
-          steps.cache-metadata.outputs.tools }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory),
-          format('{0}/**/go.sum', inputs.working-directory), format('{0}/**/*lock*', inputs.working-directory),
-          format('{0}/mise.toml', inputs.working-directory), format('{0}/.tool-versions', inputs.working-directory),
+          steps.cache-metadata.outputs.tools }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'),
+          format('{0}/**/go.sum', inputs.working-directory || '.'), format('{0}/**/*lock*', inputs.working-directory || '.'),
+          format('{0}/mise.toml', inputs.working-directory || '.'), format('{0}/.tool-versions', inputs.working-directory || '.'),
           inputs.cache-dependency-path) }}-
     - name: Run repository tasks
       id: tasks
@@ -416,4 +430,4 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: ${{ inputs.working-directory || '.' }}
