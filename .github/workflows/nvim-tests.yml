@@ -8,7 +8,7 @@ name: Neovim Tests (mini.test)
         default: v0.12.5
         type: string
       neovim-sha256:
-        description: Reviewed asset SHA-256 for release overrides; default release is pinned per platform, nightly uses GitHub asset metadata
+        description: Reviewed SHA-256 override takes precedence over the default pin; required for nondefault stable releases. Empty nightly uses metadata.
         required: false
         default: ''
         type: string

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -28,11 +29,11 @@ def step(name, identity):
     return next(s for job in workflow(name)['jobs'].values() for s in job.get('steps', []) if s.get('id', s.get('name')) == identity)
 
 
-def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, **inputs):
+def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, head_ref='release-please--main', author='github-actions[bot]', **inputs):
     """Evaluate the simple boolean/string GitHub expressions used by these guards."""
-    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref, run_id=run_id, run_attempt=run_attempt,
+    github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref, run_id=run_id, run_attempt=run_attempt, head_ref=head_ref,
         event=SimpleNamespace(repository=SimpleNamespace(default_branch='main'),
-            pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=source)))))
+            pull_request=SimpleNamespace(head=SimpleNamespace(repo=SimpleNamespace(full_name=source)), user=SimpleNamespace(login=author))))
     def evaluate(match):
         code = match.group(1).replace('&&', 'and').replace('||', 'or')
         code = re.sub(r'!(?!=)', 'not ', code)
@@ -40,7 +41,7 @@ def expression(value, event='push', ref='refs/heads/main', source='owner/project
         code = re.sub(r'\bsteps\.([A-Za-z0-9_-]+)', lambda item: 'steps.' + item.group(1).replace('-', '_'), code)
         code = re.sub(r'\.outputs\.([A-Za-z0-9_-]+)', lambda item: '.outputs.' + item.group(1).replace('-', '_'), code)
         steps = steps_context or SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
-        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: True, 'format': lambda text, *args: text.format(*args)}))
+        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: True, 'format': lambda text, *args: text.format(*args), 'startsWith': lambda text, prefix: text.startswith(prefix)}))
     return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', evaluate, value)
 
 
@@ -339,9 +340,10 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                     self.assertNotEqual(0, result.returncode)
                     self.assertFalse((self.root / 'extracted').exists())
                     self.assertFalse(Path(self.env['GITHUB_PATH']).exists())
-                self.okay(self.run_step(name, identity, VERSION='v9.9.9', EXPECTED_SHA256=digest))
-                self.assertTrue((self.root / 'extracted').exists())
-                (self.root / 'extracted').unlink()
+                for version in ['v9.9.9', pinned]:
+                    self.okay(self.run_step(name, identity, VERSION=version, EXPECTED_SHA256=digest))
+                    self.assertTrue((self.root / 'extracted').exists())
+                    (self.root / 'extracted').unlink()
         self.okay(self.run_step('nvim-tests.yml', 'Install Neovim', VERSION='nightly', EXPECTED_SHA256=''))
         (self.root / 'extracted').unlink()
         Path(self.env['GITHUB_PATH']).unlink()
@@ -647,12 +649,13 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         real_git = shutil.which('git')
         def git(*args, cwd=None):
             return subprocess.check_output([real_git, *args], cwd=cwd, text=True, stderr=subprocess.STDOUT)
-        for conflict in [False, True]:
-            with self.subTest(conflict=conflict):
-                remote = self.root / f'tap-{conflict}.git'
+        for conflict, races in [(False, 1), (False, 3), (False, 4), (True, 1)]:
+            with self.subTest(conflict=conflict, races=races):
+                scenario = f'{conflict}-{races}'
+                remote = self.root / f'tap-{scenario}.git'
                 git('init', '--bare', '-q', str(remote))
                 git('--git-dir', str(remote), 'symbolic-ref', 'HEAD', 'refs/heads/main')
-                self.project = self.root / f'writer-{conflict}'
+                self.project = self.root / f'writer-{scenario}'
                 self.project.mkdir()
                 git('init', '-q', '-b', 'main', cwd=self.project)
                 for key, value in [('user.name', 'Test'), ('user.email', 'test@example.test'), ('commit.gpgsign', 'false')]:
@@ -665,7 +668,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                 git('push', '-q', 'origin', 'main', cwd=self.project)
                 git('fetch', '--depth=1', 'origin', 'main', cwd=self.project)
                 self.assertTrue((self.project / '.git/shallow').exists())
-                other = self.root / f'other-{conflict}'
+                other = self.root / f'other-{scenario}'
                 git('clone', '-q', str(remote), str(other))
                 for key, value in [('user.name', 'Other'), ('user.email', 'other@example.test'), ('commit.gpgsign', 'false')]:
                     git('config', key, value, cwd=other)
@@ -674,23 +677,31 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
                 git('add', '.', cwd=other)
                 git('commit', '-qm', 'competing update', cwd=other)
                 (self.root / 'tool.rb').write_text('our update\n')
-                marker = self.root / f'raced-{conflict}'
+                marker = self.root / f'raced-{scenario}'
                 self.stub('git', f'''import os, pathlib, subprocess, sys
 a = sys.argv[1:]
 marker = pathlib.Path({str(marker)!r})
-if 'push' in a and not marker.exists():
-    marker.touch()
+count = int(marker.read_text()) if marker.exists() else 0
+if 'push' in a and count < {races}:
+    if count:
+        pathlib.Path({str(other / 'Formula' / competitor_file)!r}).write_text('competing update ' + str(count + 1) + '\\n')
+        subprocess.run([{real_git!r}, 'add', '.'], cwd={str(other)!r}, check=True)
+        subprocess.run([{real_git!r}, 'commit', '-qm', 'another competing update'], cwd={str(other)!r}, check=True)
+    marker.write_text(str(count + 1))
     subprocess.run([{real_git!r}, 'push', '-q', 'origin', 'main'], cwd={str(other)!r}, check=True)
 os.execv({real_git!r}, [{real_git!r}] + a)
 ''')
                 result = self.run_step('homebrew-formula.yml', 'publish', FORMULA_NAME='tool', TAG='v1.0.0', PUSH_TOKEN='')
-                self.assertEqual(not conflict, result.returncode == 0, result.stdout + result.stderr)
+                self.assertEqual(not conflict and races <= 3, result.returncode == 0, result.stdout + result.stderr)
                 self.assertTrue(marker.exists())
-                self.assertEqual('competing update\n', git('--git-dir', str(remote), 'show', 'main:Formula/' + competitor_file))
+                self.assertEqual('competing update\n' if races == 1 else f'competing update {races}\n', git('--git-dir', str(remote), 'show', 'main:Formula/' + competitor_file))
                 if conflict:
                     self.assertIn('conflicts with this formula', result.stdout)
-                else:
+                elif races <= 3:
                     self.assertEqual('our update\n', git('--git-dir', str(remote), 'show', 'main:Formula/tool.rb'))
+                else:
+                    self.assertIn('publication retry limit reached', result.stdout)
+                    self.assertEqual('before\n', git('--git-dir', str(remote), 'show', 'main:Formula/tool.rb'))
                 (self.bin / 'git').unlink()
 
     def test_pnpm_sync_requires_a_declared_or_explicit_version_before_setup(self):
@@ -702,6 +713,116 @@ os.execv({real_git!r}, [{real_git!r}] + a)
             self.assertEqual(valid, result.returncode == 0, result.stdout + result.stderr)
             if not valid:
                 self.assertIn('Set pnpm-version', result.stderr)
+
+    def test_lockfile_sync_rejects_spoofed_release_branch_authors(self):
+        jobs = workflow('pnpm-lockfile-sync.yml')['jobs']
+        generate = jobs.get('generate', jobs.get('sync-lockfile'))
+        guard = generate['if']
+        inputs = {'release-branch-prefix': 'release-please--', 'release-pr-author': 'github-actions[bot]'}
+        for event, source, head, author, allowed in [('pull_request', 'owner/project', 'release-please--main', 'github-actions[bot]', True), ('pull_request', 'owner/project', 'release-please--main', 'contributor', False), ('pull_request', 'fork/project', 'release-please--main', 'github-actions[bot]', False), ('pull_request', 'owner/project', 'feature', 'github-actions[bot]', False), ('pull_request_target', 'owner/project', 'release-please--main', 'github-actions[bot]', False)]:
+            self.assertEqual(str(allowed), expression(guard, event=event, source=source, head_ref=head, author=author, **inputs))
+        self.assertEqual('True', expression(guard, event='pull_request', author='release-app[bot]', **dict(inputs, **{'release-pr-author': 'release-app[bot]'})))
+
+    def test_lockfile_generation_has_no_publication_credentials(self):
+        jobs = workflow('pnpm-lockfile-sync.yml')['jobs']
+        self.assertIn('generate', jobs)
+        self.assertEqual({'contents': 'read'}, jobs['generate']['permissions'])
+        self.assertNotIn('secrets.token', json.dumps(jobs['generate']))
+        publisher = jobs['publish']
+        self.assertEqual('generate', publisher['needs'])
+        self.assertEqual({'contents': 'read'}, publisher['permissions'])
+        self.assertEqual('ubuntu-latest', workflow('pnpm-lockfile-sync.yml')['on']['workflow_call']['inputs']['publish-runner']['default'])
+        self.assertEqual('${{ github.event.pull_request.head.sha }}', step('pnpm-lockfile-sync.yml', 'Checkout publication source')['with']['ref'])
+        self.assertIn('mkdtemp', step('pnpm-lockfile-sync.yml', 'workspace')['run'])
+        self.assertFalse(any('Install' in s.get('name', '') or s.get('name') == 'Update lockfile' for s in publisher['steps']))
+        token_steps = [s for s in publisher['steps'] if 'secrets.token' in json.dumps(s)]
+        self.assertEqual(['push'], [s['id'] for s in token_steps])
+
+    def test_lockfile_publisher_disables_preinstalled_git_hooks(self):
+        remote = self.root / 'hook-remote.git'
+        subprocess.run(['git', 'init', '--bare', '-q', str(remote)], check=True)
+        (self.project / 'pnpm-lock.yaml').write_text('before')
+        for command in [['init', '-q'], ['config', 'user.name', 'Test'], ['config', 'user.email', 'test@example.test'], ['config', 'commit.gpgsign', 'false'], ['add', '.'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', str(remote)]]:
+            subprocess.run(['git'] + command, cwd=self.project, check=True)
+        hooks = self.project / 'hostile-hooks'
+        hooks.mkdir()
+        marker = self.root / 'token-leak'
+        for name in ['pre-commit', 'pre-push']:
+            hook = hooks / name
+            hook.write_text('#!/bin/sh\nprintf %s "$PUSH_TOKEN" > ' + str(marker) + '\n')
+            hook.chmod(0o755)
+        subprocess.run(['git', 'config', 'core.hooksPath', str(hooks)], cwd=self.project, check=True)
+        imported = self.root / 'imported'
+        imported.mkdir()
+        (imported / 'lockfile').write_text('after')
+        (self.project / 'pnpm-lock.yaml').write_text('after')
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='fixture-secret', WORKING_DIR='.', IMPORT_DIR=str(imported)))
+        self.assertFalse(marker.exists(), 'publication ran a Git hook with the push token')
+
+    def test_lockfile_publisher_isolates_python_from_checked_out_modules(self):
+        remote = self.root / 'module-remote.git'
+        subprocess.run(['git', 'init', '--bare', '-q', str(remote)], check=True)
+        marker = self.root / 'python-token-leak'
+        (self.project / 'pathlib.py').write_text('import os\nopen(' + repr(str(marker)) + ', "w").write(os.environ.get("PUSH_TOKEN", ""))\n')
+        (self.project / 'pnpm-lock.yaml').write_text('before')
+        for command in [['init', '-q'], ['config', 'user.name', 'Test'], ['config', 'user.email', 'test@example.test'], ['config', 'commit.gpgsign', 'false'], ['add', '.'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', str(remote)]]:
+            subprocess.run(['git'] + command, cwd=self.project, check=True)
+        imported = self.root / 'imported'
+        imported.mkdir()
+        (imported / 'lockfile').write_text('after')
+        result = self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='fixture-secret', WORKING_DIR='.', IMPORT_DIR=str(imported))
+        self.assertFalse(marker.exists(), 'Python imported checked-out code with the push token')
+        self.okay(result)
+
+    def test_lockfile_handoff_exports_only_changed_regular_bytes(self):
+        import hashlib
+        path = self.project / 'pnpm-lock.yaml'
+        path.write_text('before')
+        original = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'snapshot', LOCKFILE=path.name))
+        self.assertIn('sha256=' + original, Path(self.env['GITHUB_OUTPUT']).read_text())
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'export', LOCKFILE=path.name, ORIGINAL_SHA=original))
+        self.assertIn('changed=false', Path(self.env['GITHUB_OUTPUT']).read_text())
+        Path(self.env['GITHUB_OUTPUT']).unlink()
+        path.write_text('after')
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'export', LOCKFILE=path.name, ORIGINAL_SHA=original))
+        output = Path(self.env['GITHUB_OUTPUT']).read_text()
+        self.assertIn('changed=true', output)
+        exported = Path(re.search(r'path=(.*)', output)[1])
+        self.assertEqual('after', exported.read_text())
+        self.assertEqual(['lockfile'], [p.name for p in exported.parent.iterdir()])
+        path.unlink()
+        path.symlink_to(self.project / 'package.json')
+        (self.project / 'package.json').write_text('{}')
+        self.assertNotEqual(0, self.run_step('pnpm-lockfile-sync.yml', 'export', LOCKFILE=path.name, ORIGINAL_SHA=original).returncode)
+
+    def test_lockfile_handoff_uses_actual_scripts_in_separate_workspaces(self):
+        script = ROOT / 'scripts/check_pnpm.py'
+        self.okay(subprocess.run([sys.executable, '-B', str(script), 'export', '--directory', str(self.root / 'generation')], env=self.env, text=True, capture_output=True, timeout=45))
+        output = Path(self.env['GITHUB_OUTPUT']).read_text()
+        exported = Path(re.search(r'path=(.*)', output)[1])
+        imported = self.root / 'downloaded'
+        imported.mkdir()
+        shutil.copyfile(exported, imported / 'lockfile')
+        self.okay(subprocess.run([sys.executable, '-B', str(script), 'publish', '--directory', str(self.root / 'publication'), '--import-directory', str(imported)], env=self.env, text=True, capture_output=True, timeout=45))
+
+    def test_lockfile_publication_rejects_escape_metadata_and_symlinks(self):
+        imported = self.root / 'imported'
+        imported.mkdir()
+        source = imported / 'lockfile'
+        target = self.project / 'pnpm-lock.yaml'
+        args = dict(HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE=target.name, PUSH_TOKEN='fixture-secret', IMPORT_DIR=str(imported))
+        for directory, target_link, source_link, message in [('..', False, False, 'not in the subpath'), ('.git', False, False, 'must not select Git metadata'), ('.', True, False, 'Publication target must be'), ('.', False, True, 'Imported artifact must contain')]:
+            target.unlink(missing_ok=True)
+            source.unlink(missing_ok=True)
+            (self.project / 'original').write_text('before')
+            (imported / 'original').write_text('after')
+            target.symlink_to(self.project / 'original') if target_link else target.write_text('before')
+            source.symlink_to(imported / 'original') if source_link else source.write_text('after')
+            result = self.run_step('pnpm-lockfile-sync.yml', 'push', **args, WORKING_DIR=directory)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn(message, result.stderr)
+            self.assertEqual('before', (self.project / 'original').read_text())
 
     def test_neovim_installers_fail_early_on_unprovisioned_runners(self):
         for name, identity in [('nvim-format.yml', 'Install stylua'), ('nvim-lint.yml', 'Install luacheck'), ('nvim-tests.yml', 'Install Neovim')]:
@@ -778,7 +899,10 @@ os.execv({real_git!r}, [{real_git!r}] + a)
             subprocess.run(['git'] + command, cwd=self.project, check=True)
         (self.project / 'pnpm-lock.yaml').write_text('after')
         (self.project / 'unrelated.txt').write_text('after')
-        args = dict(HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='')
+        imported = self.root / 'lockfile-import'
+        imported.mkdir()
+        (imported / 'lockfile').write_text('after')
+        args = dict(HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='', WORKING_DIR='.', IMPORT_DIR=str(imported))
         self.okay(self.run_step('pnpm-lockfile-sync.yml', 'push', **args))
         changed = subprocess.check_output(['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], cwd=self.project, text=True)
         self.assertEqual('pnpm-lock.yaml\n', changed)

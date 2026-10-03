@@ -77,7 +77,7 @@ For a monorepo, set `working-directory: packages/server`. Artifact and diagnosti
 | `nvim-format.yml` | Pinned StyLua | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |
 | `nvim-lint.yml` | Pinned standalone luacheck, no apt setup | Linux x64 with gh and Python 3; use Universal CI for other platforms |
 | `nvim-tests.yml` | Exact Neovim release and pinned mini.test | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |
-| `pnpm-lockfile-sync.yml` | Refresh only a same-repository release PR lockfile | Linux with pnpm/Node |
+| `pnpm-lockfile-sync.yml` | Generate and publish a trusted release PR lockfile in isolated jobs | Linux with pnpm/Node |
 | `release-please.yml` | Release PRs and tagged releases; generic monorepo outputs | Linux with release-please |
 | `request-app-deploy.yml` | Request exact source/artifact deployment from matt-riley/infra | Linux; project-specific target |
 | `request-infra-deploy.yml` | Request deployment from an explicit generic infra repository | Linux |
@@ -133,4 +133,4 @@ The monthly documentation audit and its gh-aw bootstrap were removed. Documentat
 
 The check entrypoint validates concurrency queue values and rejects max queues with cancellation, then narrowly suppresses actionlint 1.7.12's unknown-queue-key diagnostic. Other actionlint errors remain fatal. The hosted matrix fixture checks three jobs complete under the same max queue.
 
-GitHub concurrency groups are scoped to the caller repository. Docker image publication should have one authoritative publisher repository per image; two repositories cannot coordinate through a matching group string. Homebrew tap publishing retries up to three ordinary pushes, rebasing nonconflicting concurrent changes; same-formula conflicts stop for review without overwriting another publication. Self-hosted Neovim runners must provision gh, Python 3 and the relevant archive tools (unzip for StyLua, tar for Neovim), plus Git for mini.nvim; installers check these prerequisites before downloading assets.
+GitHub concurrency groups are scoped to the caller repository. Docker image publication should have one authoritative publisher repository per image; two repositories cannot coordinate through a matching group string. Homebrew tap publishing uses up to four ordinary pushes with three recovery rebases, rebasing nonconflicting concurrent changes; same-formula conflicts stop for review without overwriting another publication. Self-hosted Neovim runners must provision gh, Python 3 and the relevant archive tools (unzip for StyLua, tar for Neovim), plus Git for mini.nvim; installers check these prerequisites before downloading assets.

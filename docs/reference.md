@@ -379,7 +379,7 @@ Neovim Tests (mini.test).
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | neovim-version | string | False | v0.12.5 | Exact Neovim release tag, or nightly for intentional compatibility testing |
-| neovim-sha256 | string | False |  | Reviewed asset SHA-256 for release overrides; default release is pinned per platform, nightly uses GitHub asset metadata |
+| neovim-sha256 | string | False |  | Reviewed SHA-256 override takes precedence over the default pin; required for nondefault stable releases. Empty nightly uses metadata. |
 | mini-version | string | False | a995fe9cd4193fb492b5df69175a351a74b3d36b | Immutable mini.nvim commit SHA (default: v0.17.0) |
 | runner | string | False | ubuntu-latest | Runner label; self-hosted runners must provision gh, Python 3 and archive tools |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
@@ -405,15 +405,17 @@ PNPM Lockfile Sync.
 
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| runner | string | False | ubuntu-latest | Runner label |
+| runner | string | False | ubuntu-latest | Runner for read-only lockfile generation |
 | working-directory | string | False | . | Directory containing package.json and lockfile |
 | node-version | string | False | 24 | Node version |
 | pnpm-version | string | False |  | Optional override; otherwise packageManager in working-directory/package.json selects pnpm |
 | lockfile-name | string | False | pnpm-lock.yaml | Lockfile name to update and commit |
-| install-command | string | False | pnpm install --no-frozen-lockfile --lockfile-only --ignore-scripts | Command used to refresh the lockfile |
+| install-command | string | False | pnpm install --no-frozen-lockfile --lockfile-only --ignore-scripts | Read-only job command to refresh the lockfile; pnpmfile hooks may execute without publication credentials |
 | commit-message | string | False | chore: sync pnpm lockfile | Commit message for lockfile updates |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
-| release-branch-prefix | string | False | release-please-- | Only sync same-repository release PR branches starting with this prefix |
+| release-branch-prefix | string | False | release-please-- | Only sync same-repository PR branches with this prefix and the configured trusted author |
+| publish-runner | string | False | ubuntu-latest | Isolated ephemeral publication runner; must not share processes/filesystem with generation |
+| release-pr-author | string | False | github-actions[bot] | Exact trusted release-automation PR author login; configure your App/PAT identity explicitly |
 
 ### Secrets
 
@@ -425,7 +427,8 @@ None.
 
 ### Job permissions
 
-- `sync-lockfile`: `contents: write`.
+- `generate`: `contents: read`.
+- `publish`: `contents: read`.
 
 ## release-please.yml
 

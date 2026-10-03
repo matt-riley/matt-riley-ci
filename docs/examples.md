@@ -227,14 +227,14 @@ jobs:
 
 ## pnpm-lockfile-sync.yml
 
-Only same-repository PRs with a release-please-- branch prefix run. Commit package.json with packageManager: pnpm@<version>, or set pnpm-version. The token needs contents write; App/PAT credentials permit subsequent push-triggered CI.
+Only same-repository PRs matching both the release-please-- branch prefix and release-pr-author run. The author defaults to github-actions[bot]; set the exact App/PAT author login when your release automation uses another identity. Commit package.json with packageManager: pnpm@<version>, or set pnpm-version. Generation runs with a read-only token and no push secret; changed lockfile bytes pass through a same-run artifact to a fresh checkout on an isolated ephemeral publish-runner (ubuntu-latest by default). The supplied token needs contents write; App/PAT credentials permit subsequent push-triggered CI. Custom install commands and pnpmfile hooks stay in the generation job.
 
 ```yaml
 name: PNPM Lockfile Sync
 'on':
   pull_request: null
 permissions:
-  contents: write
+  contents: read
 jobs:
   run:
     uses: matt-riley/matt-riley-ci/.github/workflows/pnpm-lockfile-sync.yml@REVIEWED_COMMIT_SHA

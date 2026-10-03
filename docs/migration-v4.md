@@ -15,7 +15,7 @@ These changes are staged for the next major release. They are not available on e
 | Generic dispatcher inferred vars.APP_ID | Explicit dispatch-app-id and trusted source branch | Supply the App ID as an input and install the App only on the target |
 | Homebrew required all four archives and assumed `version` CLI argument | Optional per-platform assets, explicit test-args, Ruby validation | Omit unsupported assets; set test-args as needed; token absence fails by default |
 | Neovim version meant an apt package; mini ref could float | Exact release/nightly and immutable mini commit | Use a release tag for Neovim and a full SHA for mini-version |
-| Lockfile sync could write any PR branch | Same-repository release PR branches only; transient push credential | Set release-branch-prefix when using a different release bot; use packageManager or pnpm-version |
+| Lockfile sync could write any PR branch | Trusted author and release branch; read-only generation, isolated artifact publication | Set release-pr-author for your release identity; configure release-branch-prefix and packageManager or pnpm-version |
 | Tool caches saved implicitly | Go/universal cache writes opt in on trusted default-branch runs | Enable save-cache on one designated writer |
 | PR jobs could automatically restore trusted dependency/build/tool caches | Fork PRs skip those restores; same-repository PRs retain them | Use `cache: false` for private dependency source; leave saves off and delete sensitive existing caches, because GitHub cache access itself is not isolated from forks |
 | Release/tag advancement independent of tests | Full suite gates release; floating tag target must equal the tested SHA | Configure the protected release environment and tag credential |
@@ -57,3 +57,13 @@ Empty Go working-directory inputs now select `.` consistently. Configured artifa
 Tailscale skips fork PR authentication; validate those changes only after maintainer review in a trusted context. Applies share one repository queue for all tailnet selectors; use one authoritative publisher repository per tailnet across repositories.
 
 Homebrew formula generation trusts the chosen source release publisher. Its recorded archive checksum detects later byte changes, not an initially compromised producer. Verify any required producer attestations before invoking the publisher; generated formulas receive Ruby syntax validation, not a cross-platform installation test in this workflow.
+
+
+PNPM lockfile sync now requires an exact trusted PR author (release-pr-author defaults to github-actions[bot]) in addition to same-repository/prefix checks. Configure the login used by your Release Please App/PAT explicitly. The caller only needs contents:read; the supplied push token still needs contents:write. Custom commands and pnpmfile hooks execute in the read-only generation job without that secret. A changed regular lockfile is uploaded for one day and passed by artifact ID to a fresh checkout at the original PR head SHA; the isolated publisher disables Git hooks, isolates Python imports from checked-out modules and commits only that file. Unchanged generation skips artifact upload and the publication job.
+
+runner now selects the generation runner; publish-runner defaults independently to ubuntu-latest. Publication requires an ephemeral runner isolated from generation processes/filesystem. A shared persistent self-hosted machine is not a security boundary, even with a new checkout directory. Generation and publication serialize together per PR branch with a bounded max queue. The existing package lifecycle --ignore-scripts flag remains; pnpmfile hooks may still run, as documented by pnpm, so custom resolution hooks remain usable without publication credentials.
+
+Homebrew permits three nonconflicting recovery rebases, with a final fourth push. Exhausting the push budget stops immediately; the job no longer performs a final rebase whose result cannot be pushed.
+
+
+Caller-supplied reviewed SHA-256 inputs take precedence over built-in digest fallbacks, including the default Neovim release. Leave the override empty to use the default per-platform pin; supply a digest appropriate to the selected platform when overriding it. Caller configuration is trusted and owns that reviewed value.
