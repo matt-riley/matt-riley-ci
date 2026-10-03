@@ -107,22 +107,24 @@ jobs:
         if not args or args[0] != 'release': raise SystemExit('args must invoke the release command')
         if e['SNAPSHOT'] != 'true' and (e['GITHUB_EVENT_NAME'] not in ['push','release','workflow_dispatch'] or not e['GITHUB_REF'].startswith('refs/tags/')):
             raise SystemExit('Publishing requires a trusted tag event; use snapshot:true for validation')
-        if e['SNAPSHOT'] != 'true':
-            index = 1
-            value_flags = ['--config', '-f', '--release-notes', '--release-header', '--release-footer', '--release-notes-tmpl', '--release-header-tmpl', '--release-footer-tmpl', '--parallelism', '-p', '--timeout']
-            while index < len(args):
-                arg = args[index]
-                flag, equals, value = arg.partition('=')
-                if flag in value_flags and not equals:
-                    index += 2
-                    continue
-                if flag in ['--snapshot', '--auto-snapshot', '--skip-publish', '--help', '-h'] and value.lower() not in ['false', '0', 'f']:
+        index = 1
+        value_flags = ['--config', '-f', '--release-notes', '--release-header', '--release-footer', '--release-notes-tmpl', '--release-header-tmpl', '--release-footer-tmpl', '--parallelism', '-p', '--timeout']
+        while index < len(args):
+            arg = args[index]
+            flag, equals, value = arg.partition('=')
+            if flag in value_flags and not equals:
+                index += 2
+                continue
+            if flag in ['--help', '-h'] and value.lower() not in ['false', '0', 'f']:
+                raise SystemExit('args must perform a release or snapshot, not display help')
+            if e['SNAPSHOT'] != 'true':
+                if flag in ['--snapshot', '--auto-snapshot', '--skip-publish'] and value.lower() not in ['false', '0', 'f']:
                     raise SystemExit('Publishing args cannot suppress a release; use snapshot:true for validation')
                 if flag == '--skip':
                     value = value if equals else (args[index + 1] if index + 1 < len(args) else '')
                     if 'publish' in next(csv.reader([value]), []): raise SystemExit('Publishing args cannot skip publish; use snapshot:true for validation')
                     if not equals: index += 1
-                index += 1
+            index += 1
         PY
       shell: bash
     - name: Set up Go

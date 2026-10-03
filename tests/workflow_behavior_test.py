@@ -486,6 +486,11 @@ else: sys.exit('unexpected request')
     def test_goreleaser_snapshot_and_publish_arguments_fail_closed(self):
         env = dict(SNAPSHOT='true', ARGS='release --clean', TAP_TOKEN='', APP_TOKEN='', TAP_OWNER='owner', TAP_REPO='tap', TAP_FAIL_IF_MISSING='true')
         self.okay(self.run_step('go-goreleaser.yml', 'Validate release authority', **env))
+        for args in ['release --help', 'release -h', 'release --help=true', 'release -h=true']:
+            with self.subTest(snapshot_help=args):
+                self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(env, ARGS=args)).returncode)
+        for args in ['release --help=false --clean', 'release --release-notes "--help"']:
+            self.okay(self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(env, ARGS=args)))
         self.okay(self.run_step('go-goreleaser.yml', 'goreleaser-args', **env))
         self.assertIn('value=release --clean --snapshot --skip=publish', Path(self.env['GITHUB_OUTPUT']).read_text())
         self.assertNotEqual(0, self.run_step('go-goreleaser.yml', 'Validate release authority', **dict(env, SNAPSHOT='false', GITHUB_EVENT_NAME='pull_request')).returncode)
@@ -1175,6 +1180,26 @@ if 'ls-remote' in args:
         self.assertEqual('False', expression(guard, event='pull_request_target', source='fork/project'))
         self.assertEqual('True', expression(guard, event='pull_request_target', source='owner/project'))
 
+    def test_tailscale_policy_stays_inside_checkout(self):
+        env = dict(REQUESTED='test', EVENT_NAME='push', REF='refs/heads/main', DEFAULT_BRANCH='main')
+        policies = self.project / 'policies'
+        policies.mkdir()
+        policy = policies / 'tailnet.hujson'
+        policy.write_text('{}')
+        (self.project / 'policy-link.hujson').symlink_to(policy)
+        for name in ['policies/tailnet.hujson', 'policies/../policies/tailnet.hujson', 'policy-link.hujson']:
+            self.okay(self.run_step('tailscale-acl.yml', 'resolve', POLICY_FILE=name, **env))
+        with tempfile.TemporaryDirectory() as outside:
+            host_policy = Path(outside) / 'host.hujson'
+            host_policy.write_text('{}')
+            (self.project / 'escape.hujson').symlink_to(host_policy)
+            for name in [str(policy), str(host_policy), os.path.relpath(host_policy, self.project), 'escape.hujson']:
+                with self.subTest(policy=name):
+                    Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+                    result = self.run_step('tailscale-acl.yml', 'resolve', POLICY_FILE=name, **env)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
+
     def test_major_tag_push_failure_and_remote_mismatch_fail(self):
         checkout = step('repository-release-please.yml', 'Checkout')['with']
         self.assertEqual('${{ secrets.RELEASE_TAG_TOKEN || github.token }}', checkout['token'])
@@ -1220,6 +1245,16 @@ if 'push' in args and os.environ['FAIL_PUSH'] == 'true': sys.exit(1)
         self.assertEqual(sha, published)
         old_sha = subprocess.check_output(['git', 'rev-parse', 'v1.0.0'], cwd=self.project, text=True).strip()
         self.assertNotEqual(0, self.run_step('repository-release-please.yml', 'move', **dict(env, TAG_NAME='v1.0.0', TESTED_SHA=old_sha)).returncode)
+
+    def test_major_tag_rejects_leading_zero_versions_before_remote_mutation(self):
+        marker = self.root / 'git-invoked'
+        self.stub('git', f'import pathlib\npathlib.Path({str(marker)!r}).touch()\n')
+        for tag in ['v01.2.3', 'v1.02.3', 'v1.2.03']:
+            with self.subTest(tag=tag):
+                marker.unlink(missing_ok=True)
+                result = self.run_step('repository-release-please.yml', 'move', TAG_NAME=tag, TESTED_SHA='a' * 40, PUSH_TOKEN='', HAS_TAG_TOKEN='true')
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(marker.exists())
 
 
 class Policy(unittest.TestCase):
@@ -1284,6 +1319,20 @@ class Policy(unittest.TestCase):
         reference = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(reference)
         self.assertEqual('one<br>two<br>three<br>four\\|five', reference.cell('one\r\ntwo\rthree\nfour|five'))
+
+    def test_reference_supports_scalar_and_list_reusable_triggers(self):
+        spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')
+        reference = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reference)
+        with tempfile.TemporaryDirectory() as directory:
+            reference.ROOT = Path(directory)
+            workflows = reference.ROOT / '.github/workflows'
+            workflows.mkdir(parents=True)
+            for trigger in ['workflow_call', ['workflow_call'], ['push', 'workflow_call'], {'workflow_call': {}}]:
+                with self.subTest(trigger=trigger):
+                    (workflows / 'fixture.yml').write_text(yaml.safe_dump({'name': 'Shorthand', 'on': trigger, 'jobs': {'run': {'permissions': {'contents': 'read'}}}}))
+                    self.assertIn('Shorthand.', reference.render())
+                    self.assertIn('`contents: read`', reference.render())
 
     def test_reference_handles_unnamed_workflows_and_distinguishes_inherited_permissions(self):
         spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')

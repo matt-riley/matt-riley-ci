@@ -18,6 +18,10 @@ def render():
     for path in sorted(set(directory.glob('*.yml')) | set(directory.glob('*.yaml'))):
         workflow = yaml.safe_load(path.read_text())
         triggers = workflow.get('on', workflow.get(True, {}))
+        if isinstance(triggers, str):
+            triggers = {triggers: {}}
+        elif isinstance(triggers, list):
+            triggers = {event: {} for event in triggers}
         if 'workflow_call' not in triggers or path.name == 'contract-tests.yml':
             continue
         call = triggers['workflow_call'] or {}

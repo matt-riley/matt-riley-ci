@@ -91,6 +91,16 @@ jobs:
           echo "::error title=Policy file not found::'$POLICY_FILE' does not exist in this repository. Set the policy-file input to its path." >&2
           exit 1
         fi
+        python3 - <<'PY'
+        import os, pathlib
+        path = pathlib.Path(os.environ['POLICY_FILE'])
+        if path.is_absolute() or any(c in str(path) for c in '\r\n'):
+            raise SystemExit('policy-file must be relative to the repository root')
+        try:
+            path.resolve().relative_to(pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve())
+        except ValueError:
+            raise SystemExit('policy-file must stay inside the repository') from None
+        PY
 
         echo "action=$resolved" >> "$GITHUB_OUTPUT"
         echo "Resolved action: $resolved (policy file: $POLICY_FILE)"

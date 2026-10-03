@@ -59,7 +59,7 @@ jobs:
           # shellcheck disable=SC2016
           git -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' "$@"
         }
-        [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::Only stable semantic-version tags may move a major tag'; exit 1; }
+        [[ "$TAG_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo '::error::Only stable semantic-version tags may move a major tag'; exit 1; }
         major_tag="${TAG_NAME%%.*}"
         authenticated_git fetch --force --tags origin
         target_sha="$(git rev-list -n 1 "refs/tags/$TAG_NAME")"
