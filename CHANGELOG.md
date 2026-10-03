@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.0.0](https://github.com/matt-riley/matt-riley-ci/compare/v3.1.0...v4.0.0) (2026-10-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* standardize reusable workflows and performance ([#116](https://github.com/matt-riley/matt-riley-ci/issues/116))
+
+### Features
+
+* standardize reusable workflows and performance ([#116](https://github.com/matt-riley/matt-riley-ci/issues/116)) ([ddb6d4c](https://github.com/matt-riley/matt-riley-ci/commit/ddb6d4c45b2096e61b7bf7d582247cc3d5e00189))
+
 ## [3.1.0](https://github.com/matt-riley/matt-riley-ci/compare/v3.0.1...v3.1.0) (2026-10-02)
 
 
