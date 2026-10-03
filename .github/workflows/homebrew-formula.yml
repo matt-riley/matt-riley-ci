@@ -7,7 +7,7 @@ name: Homebrew Formula
         required: true
         type: string
       source-repo:
-        description: Repository containing release assets; defaults to the caller repository
+        description: Public repository containing anonymously downloadable release assets; defaults to the caller repository
         required: false
         default: ''
         type: string
@@ -139,7 +139,7 @@ jobs:
         TEST_ARGS: ${{ inputs.test-args }}
       run: |
         python3 - <<'PY'
-        import hashlib, os, pathlib, re, shlex, subprocess, urllib.parse
+        import hashlib, json, os, pathlib, re, shlex, subprocess, urllib.parse
         e = os.environ
         if e['RUNNER_OS'] != 'Linux': raise SystemExit('Homebrew generation supports Linux runners')
         if e['GITHUB_EVENT_NAME'] not in ['push', 'release', 'workflow_dispatch'] or not e['GITHUB_REF'].startswith('refs/tags/'):
@@ -152,6 +152,9 @@ jobs:
         if e['GITHUB_REF'] != 'refs/tags/' + e['TAG']: raise SystemExit('tag must match the triggering release ref')
         binary = pathlib.PurePosixPath(e['BINARY'])
         if binary.is_absolute() or '..' in binary.parts or not binary.name or e['BINARY'].endswith('/'): raise SystemExit('Invalid binary path')
+        repository = json.loads(subprocess.check_output(['gh', 'repo', 'view', e['SOURCE_REPO'], '--json', 'visibility'], text=True))
+        if repository.get('visibility') != 'PUBLIC':
+            raise SystemExit('Homebrew formulas require a public source repository with anonymously downloadable release assets')
         def ruby(value):
             return "'" + value.replace('\\', '\\\\').replace("'", "\\'") + "'"
         assets = pathlib.Path(e['RUNNER_TEMP']) / 'homebrew-assets'

@@ -25,9 +25,9 @@ The user authorized all bugs and improvements from the review, including removal
 
 ## Local evidence
 
-Implemented the core/specialized contracts, writer guards, scoped caches, fast binary setup, complete caller/reference/migration/performance documentation, and audit removal. The single local entrypoint passes actionlint with shellcheck, zizmor offline policy, 81 executable contracts, and generated-reference drift checks. Real mise dependency graphs execute shared installation once; real local Git remotes verify annotated major-tag updates, idempotence, exact tested SHA rejection, and rollback rejection. Ruby syntax checks validate generated formulas with quoted/interpolated-looking input.
+Implemented the core/specialized contracts, writer guards, scoped caches, fast binary setup, complete caller/reference/migration/performance documentation, and audit removal. The single local entrypoint passes actionlint with shellcheck, zizmor offline policy, 86 executable contracts, and generated-reference drift checks. Real mise dependency graphs execute shared installation once; real local Git remotes verify annotated major-tag updates, idempotence, exact tested SHA rejection, and rollback rejection. Ruby syntax checks validate generated formulas with quoted/interpolated-looking input.
 
-The hosted runs and counts below are historical evidence for those revisions. Current source-head and PR-merge validation evidence is maintained in the PR description; the current local suite contains 81 contracts plus seven separately executed real Neovim cases.
+The hosted runs and counts below are historical evidence for those revisions. Current source-head and PR-merge validation evidence is maintained in the PR description; the current local suite contains 86 contracts plus seven separately executed real Neovim cases.
 
 The user-provided mattriley.tools example showed mise setup succeeding and repository Playwright setup installing 181 apt packages in two jobs. Build failures occurred in Astro's TypeScript compatibility check. Evidence and task-boundary guidance are in docs/performance.md. The external repository was inspected without modifying it.
 

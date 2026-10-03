@@ -291,7 +291,7 @@ Homebrew Formula.
 | Input | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | tag | string | True |  | Release tag to publish, for example v1.2.3 |
-| source-repo | string | False |  | Repository containing release assets; defaults to the caller repository |
+| source-repo | string | False |  | Public repository containing anonymously downloadable release assets; defaults to the caller repository |
 | tap-repo | string | False | matt-riley/homebrew-tools | Homebrew tap repository |
 | formula-name | string | True |  | Formula filename without .rb |
 | class-name | string | True |  | Ruby Formula class name |

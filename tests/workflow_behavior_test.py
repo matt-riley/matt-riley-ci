@@ -29,7 +29,19 @@ def step(name, identity):
     return next(s for job in workflow(name)['jobs'].values() for s in job.get('steps', []) if s.get('id', s.get('name')) == identity)
 
 
-def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, head_ref='release-please--main', author='github-actions[bot]', **inputs):
+def python_heredocs(script):
+    """Extract literal Python heredocs, including quoted and tab-stripped forms."""
+    pattern = r'\bpython(?:3(?:\.\d+)?)?\b[^\n]*?<<(?P<tabs>-?)[ \t]*(?P<quote>[\'\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)[^\n]*\n'
+    for match in re.finditer(pattern, script):
+        delimiter = re.escape(match['delimiter'])
+        end = re.search(r'^' + (r'\t*' if match['tabs'] else '') + delimiter + r'\r?$', script[match.end():], re.M)
+        if end is None:
+            raise ValueError('Unterminated Python heredoc: ' + match['delimiter'])
+        body = script[match.end():match.end() + end.start()]
+        yield '\n'.join(line.lstrip('\t') for line in body.splitlines()) if match['tabs'] else body
+
+
+def expression(value, event='push', ref='refs/heads/main', source='owner/project', steps_context=None, run_id=1, run_attempt=1, head_ref='release-please--main', author='github-actions[bot]', job_success=True, **inputs):
     """Evaluate the simple boolean/string GitHub expressions used by these guards."""
     github = SimpleNamespace(repository='owner/project', event_name=event, ref=ref, run_id=run_id, run_attempt=run_attempt, head_ref=head_ref,
         event=SimpleNamespace(repository=SimpleNamespace(default_branch='main'),
@@ -41,7 +53,7 @@ def expression(value, event='push', ref='refs/heads/main', source='owner/project
         code = re.sub(r'\bsteps\.([A-Za-z0-9_-]+)', lambda item: 'steps.' + item.group(1).replace('-', '_'), code)
         code = re.sub(r'\.outputs\.([A-Za-z0-9_-]+)', lambda item: '.outputs.' + item.group(1).replace('-', '_'), code)
         steps = steps_context or SimpleNamespace(cache_metadata=SimpleNamespace(outputs=SimpleNamespace(paths='/cache/dependencies', build_cache='/cache/build')))
-        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: True, 'format': lambda text, *args: text.format(*args), 'startsWith': lambda text, prefix: text.startswith(prefix)}))
+        return str(eval(code, {'__builtins__': {}}, {'github': github, 'inputs': inputs, 'steps': steps, 'true': True, 'false': False, 'success': lambda: job_success, 'failure': lambda: not job_success, 'always': lambda: True, 'format': lambda text, *args: text.format(*args), 'startsWith': lambda text, prefix: text.startswith(prefix)}))
     return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', evaluate, value)
 
 
@@ -76,8 +88,21 @@ class Scripts(unittest.TestCase):
                     with self.subTest(workflow=path.name, step=script.get('name')):
                         parsed = subprocess.run(['bash', '-n'], input=script['run'], text=True, capture_output=True)
                         self.okay(parsed)
-                        for block in re.findall(r"<<'PY'[^\n]*\n(.*?)\nPY(?:\n|$)", script['run'], re.S):
+                        for block in python_heredocs(script['run']):
                             compile(block, path.name, 'exec')
+
+    def test_python_syntax_coverage_includes_alternate_heredoc_forms(self):
+        for opening, closing, prefix in [('<<PY', 'PY', ''), ("<<'PY'", 'PY', ''), ('<<"CODE"', 'CODE', ''), ("<<'EOF'", 'EOF', ''), ('<<-END', '\tEND', '\t')]:
+            with self.subTest(opening=opening):
+                body = prefix + 'value = 42\n' + prefix + 'assert value == 42\n'
+                script = 'python3 -I - ' + opening + '\n' + body + closing + '\n'
+                blocks = list(python_heredocs(script))
+                self.assertEqual(1, len(blocks))
+                compile(blocks[0], '<fixture>', 'exec')
+                broken = script.replace('value = 42', 'value = (')
+                with self.assertRaises(SyntaxError):
+                    compile(next(python_heredocs(broken)), '<fixture>', 'exec')
+        self.assertEqual([], list(python_heredocs("cat <<'PY'\nnot Python\nPY\n")))
 
     def task_env(self, **changes):
         defaults = dict(DEFAULT_TASK='ci', TASK_PREFIX='', TASK_ENV='', TASK_JOBS='4', PHASE_INSTALL='false', PHASE_LINT='false', PHASE_BUILD='false', PHASE_TEST='false', PHASE_VET='false', PHASE_FMT='false')
@@ -118,6 +143,9 @@ run = "test -f count"
         output = Path(self.env['GITHUB_OUTPUT']).read_text()
         for suffix in ['dist', 'coverage/out', 'dist/private', 'logs']:
             self.assertIn(str(self.project / suffix), output)
+        # Relative paths may select a sibling project, but never leave the repo.
+        self.okay(self.run_step('ci.yml', 'paths', BUILD_PATHS='../shared/dist', FAILURE_PATHS=''))
+        self.assertIn(str(self.root / 'shared/dist'), Path(self.env['GITHUB_OUTPUT']).read_text())
         self.assertNotEqual(0, self.run_step('ci.yml', 'paths', BUILD_PATHS='../../outside', FAILURE_PATHS='').returncode)
 
     def test_artifact_retention_respects_the_actual_repository_cap(self):
@@ -136,8 +164,6 @@ run = "test -f count"
                 saves = [i for i, item in enumerate(steps) if item.get('uses', '').startswith('actions/cache/save@')]
                 if uploads and saves:
                     self.assertLess(max(uploads), min(saves))
-                for index in saves:
-                    self.assertIn('success()', steps[index]['if'])
 
     def test_configured_artifact_paths_require_an_inclusion(self):
         for name, identity, variable in [('ci.yml', 'paths', 'BUILD_PATHS'), ('go-ci.yml', 'paths', 'COVERAGE_PATHS'), ('aube-ci.yml', 'paths', 'COVERAGE_PATHS')]:
@@ -249,9 +275,10 @@ run = "test -f count"
                         self.assertFalse(item['with']['cache'])
                     if not item.get('uses', '').startswith('actions/cache/save@'):
                         continue
-                    for event, ref, enabled, save, allowed in [('push', 'refs/heads/main', True, True, True), ('workflow_dispatch', 'refs/heads/main', True, True, True), ('push', 'refs/heads/feature', True, True, False), ('pull_request', 'refs/heads/main', True, True, False), ('pull_request_target', 'refs/heads/main', True, True, False), ('push', 'refs/heads/main', False, True, False), ('push', 'refs/heads/main', True, False, False)]:
+                    for event, ref, enabled, save, allowed in [('push', 'refs/heads/main', True, True, True), ('workflow_dispatch', 'refs/heads/main', True, True, True), ('workflow_dispatch', 'refs/heads/feature', True, True, False), ('push', 'refs/heads/feature', True, True, False), ('pull_request', 'refs/heads/main', True, True, False), ('pull_request_target', 'refs/heads/main', True, True, False), ('push', 'refs/heads/main', False, True, False), ('push', 'refs/heads/main', True, False, False)]:
                         with self.subTest(workflow=name, step=item['name'], event=event, ref=ref, enabled=enabled, save=save):
                             self.assertEqual(str(allowed), expression(item['if'], event=event, ref=ref, steps_context=context, cache=enabled, **{'save-cache': save}))
+                            self.assertEqual('False', expression(item['if'], event=event, ref=ref, steps_context=context, job_success=False, cache=enabled, **{'save-cache': save}))
 
     def test_dependency_cache_fallback_cannot_match_a_build_cache(self):
         dependencies = step('ci.yml', 'dependencies')['with']
@@ -546,6 +573,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
             ('push', 'refs/heads/main', 'owner/project', True, False, False, True, False),
             ('push', 'refs/heads/main', 'owner/project', True, True, False, True, True),
             ('workflow_dispatch', 'refs/heads/main', 'owner/project', True, True, False, True, True),
+            ('workflow_dispatch', 'refs/heads/feature', 'owner/project', True, True, False, True, False),
             ('push', 'refs/heads/feature', 'owner/project', True, True, False, True, False),
             ('push', 'refs/tags/v1.0.0', 'owner/project', True, False, True, True, True),
             ('push', 'refs/heads/main', 'owner/project', False, True, True, False, False),
@@ -628,7 +656,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertNotIn('inputs.environment', job['concurrency']['group'])
 
     def test_homebrew_quotes_ruby_and_accepts_one_platform(self):
-        self.stub('gh', "import pathlib, sys\na=sys.argv\npathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'asset')\n")
+        self.stub('gh', "import json, os, pathlib, sys\na=sys.argv\nif a[1:3] == ['repo', 'view']: print(json.dumps({'visibility': os.environ.get('VISIBILITY', 'PUBLIC')}))\nelse: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes(b'asset')\n")
         env = dict(SOURCE_REPO='owner/project', TAP_REPO='owner/tap', TAG='v1.2.3', FORMULA_NAME='tool', CLASS_NAME='Tool', DESC='Say "hello" #{raise "boom"} and it\'s fine', HOMEPAGE='https://example.test', LICENSE='MIT', BINARY='tool', TEST_ARGS='--version "quoted arg"', ARCHIVE_X86_64_MACOS='tool.tar.gz', ARCHIVE_AARCH64_MACOS='', ARCHIVE_X86_64_LINUX='', ARCHIVE_AARCH64_LINUX='', GITHUB_REF='refs/tags/v1.2.3')
         self.okay(self.run_step('homebrew-formula.yml', 'formula', **env))
         formula = (self.root / 'tool.rb').read_text()
@@ -644,6 +672,14 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
         self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, CLASS_NAME='Tool;raise')).returncode)
         for change in [dict(GITHUB_REF='refs/tags/v9.9.9'), dict(BINARY='.'), dict(BINARY='./')]:
             self.assertNotEqual(0, self.run_step('homebrew-formula.yml', 'formula', **dict(env, **change)).returncode)
+        for visibility in ['PRIVATE', 'INTERNAL', 'unknown']:
+            (self.root / 'tool.rb').unlink(missing_ok=True)
+            shutil.rmtree(self.root / 'homebrew-assets', ignore_errors=True)
+            result = self.run_step('homebrew-formula.yml', 'formula', **dict(env, VISIBILITY=visibility))
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn('public source repository', result.stderr)
+            self.assertFalse((self.root / 'tool.rb').exists())
+            self.assertFalse((self.root / 'homebrew-assets').exists())
 
     def test_homebrew_retries_other_formula_updates_and_preserves_conflicts(self):
         real_git = shutil.which('git')
@@ -706,13 +742,30 @@ os.execv({real_git!r}, [{real_git!r}] + a)
 
     def test_pnpm_sync_requires_a_declared_or_explicit_version_before_setup(self):
         package = self.project / 'package.json'
-        args = dict(PREFIX='release-please--', LOCKFILE='pnpm-lock.yaml', PNPM_VERSION='', PACKAGE_JSON=str(package))
+        args = dict(PREFIX='release-please--', LOCKFILE='pnpm-lock.yaml', PNPM_VERSION='', WORKING_DIR=self.project.name)
         for manager, explicit, valid in [('', '', False), ('npm@10', '', False), ('pnpm@10.0.0', '', True), ('', '10.0.0', True)]:
             package.write_text(json.dumps({'packageManager': manager}))
             result = self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', **dict(args, PNPM_VERSION=explicit))
             self.assertEqual(valid, result.returncode == 0, result.stdout + result.stderr)
             if not valid:
                 self.assertIn('Set pnpm-version', result.stderr)
+
+    def test_pnpm_generation_validates_project_before_reading_package_json(self):
+        (self.project / 'package.json').write_text('{"packageManager":"pnpm@10.0.0"}')
+        args = dict(PREFIX='release-please--', LOCKFILE='pnpm-lock.yaml', PNPM_VERSION='', WORKING_DIR=self.project.name)
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', **args))
+        (self.root / 'linked').symlink_to(self.project)
+        self.okay(self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', **dict(args, WORKING_DIR='linked')))
+        with tempfile.TemporaryDirectory() as outside:
+            (Path(outside) / 'package.json').write_text('{broken JSON')
+            (self.root / 'escape').symlink_to(outside)
+            (self.project / 'package.json').unlink()
+            (self.project / 'package.json').symlink_to(Path(outside) / 'package.json')
+            for directory in [outside, '../outside', '.git', 'escape', self.project.name]:
+                for version in ['', '10.0.0']:
+                    result = self.run_step('pnpm-lockfile-sync.yml', 'Validate sync inputs', **dict(args, WORKING_DIR=directory, PNPM_VERSION=version))
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertNotIn('JSONDecodeError', result.stderr, 'outside package.json was read before containment validation')
 
     def test_lockfile_sync_rejects_spoofed_release_branch_authors(self):
         jobs = workflow('pnpm-lockfile-sync.yml')['jobs']
@@ -744,6 +797,7 @@ os.execv({real_git!r}, [{real_git!r}] + a)
         (self.project / 'pnpm-lock.yaml').write_text('before')
         for command in [['init', '-q'], ['config', 'user.name', 'Test'], ['config', 'user.email', 'test@example.test'], ['config', 'commit.gpgsign', 'false'], ['add', '.'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', str(remote)]]:
             subprocess.run(['git'] + command, cwd=self.project, check=True)
+        subprocess.run(['git', 'push', '-q', 'origin', 'HEAD:refs/heads/release-please--main'], cwd=self.project, check=True)
         hooks = self.project / 'hostile-hooks'
         hooks.mkdir()
         marker = self.root / 'token-leak'
@@ -767,12 +821,53 @@ os.execv({real_git!r}, [{real_git!r}] + a)
         (self.project / 'pnpm-lock.yaml').write_text('before')
         for command in [['init', '-q'], ['config', 'user.name', 'Test'], ['config', 'user.email', 'test@example.test'], ['config', 'commit.gpgsign', 'false'], ['add', '.'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', str(remote)]]:
             subprocess.run(['git'] + command, cwd=self.project, check=True)
+        subprocess.run(['git', 'push', '-q', 'origin', 'HEAD:refs/heads/release-please--main'], cwd=self.project, check=True)
         imported = self.root / 'imported'
         imported.mkdir()
         (imported / 'lockfile').write_text('after')
         result = self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='fixture-secret', WORKING_DIR='.', IMPORT_DIR=str(imported))
         self.assertFalse(marker.exists(), 'Python imported checked-out code with the push token')
         self.okay(result)
+
+    def test_lockfile_publication_rejects_moved_deleted_or_rewound_branches(self):
+        real_git = shutil.which('git')
+        def git(*args):
+            return subprocess.check_output([real_git, *args], cwd=self.project, text=True, stderr=subprocess.STDOUT).strip()
+        remote = self.root / 'race-remote.git'
+        git('init', '--bare', '-q', str(remote))
+        git('init', '-q')
+        for key, value in [('user.name', 'Fixture'), ('user.email', 'fixture@example.test'), ('commit.gpgsign', 'false')]:
+            git('config', key, value)
+        (self.project / 'pnpm-lock.yaml').write_text('before')
+        git('add', '.')
+        git('commit', '-qm', 'ancestor')
+        ancestor = git('rev-parse', 'HEAD')
+        git('commit', '--allow-empty', '-qm', 'event head')
+        source = git('rev-parse', 'HEAD')
+        git('commit', '--allow-empty', '-qm', 'newer head')
+        newer = git('rev-parse', 'HEAD')
+        git('remote', 'add', 'origin', str(remote))
+        imported = self.root / 'imported'
+        imported.mkdir()
+        (imported / 'lockfile').write_text('after')
+        ref = 'refs/heads/release-please--main'
+        for target in [ancestor, newer, None, source]:
+            with self.subTest(remote_head=target):
+                git('reset', '--hard', source)
+                if target is None:
+                    git('--git-dir', str(remote), 'update-ref', '-d', ref)
+                else:
+                    git('push', '-q', '--force', 'origin', target + ':' + ref)
+                Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
+                result = self.run_step('pnpm-lockfile-sync.yml', 'push', HEAD_REF='release-please--main', COMMIT_MESSAGE='sync', LOCKFILE='pnpm-lock.yaml', PUSH_TOKEN='fixture-secret', WORKING_DIR='.', IMPORT_DIR=str(imported))
+                self.assertEqual(target == source, result.returncode == 0, result.stdout + result.stderr)
+                actual = git('ls-remote', 'origin', ref).split()
+                if target == source:
+                    self.assertEqual(source, git('rev-parse', 'HEAD^'))
+                    self.assertEqual('after', git('--git-dir', str(remote), 'show', ref + ':pnpm-lock.yaml'))
+                else:
+                    self.assertEqual([target, ref] if target else [], actual)
+                    self.assertFalse(Path(self.env['GITHUB_OUTPUT']).exists())
 
     def test_lockfile_handoff_exports_only_changed_regular_bytes(self):
         import hashlib
@@ -851,12 +946,12 @@ os.execv({real_git!r}, [{real_git!r}] + a)
             for item in (item for job in workflow(name)['jobs'].values() for item in job['steps']):
                 if not item.get('name', '').startswith(('Restore dependencies', 'Restore Go module cache', 'Restore Go build cache', 'Restore golangci-lint cache')):
                     continue
-                for event, source, allowed in [('push', '', True), ('pull_request', 'owner/project', True), ('pull_request', 'fork/project', False), ('pull_request_target', 'fork/project', False)]:
-                    with self.subTest(workflow=name, step=item['name'], event=event, source=source):
-                        result = expression(item.get('if', '${{ true }}'), event=event, source=source, cache=True)
+                for event, ref, source, allowed in [('push', 'refs/heads/main', '', True), ('workflow_dispatch', 'refs/heads/feature', 'owner/project', True), ('pull_request', 'refs/pull/1/merge', 'owner/project', True), ('pull_request', 'refs/pull/1/merge', 'fork/project', False), ('pull_request_target', 'refs/heads/main', 'fork/project', False)]:
+                    with self.subTest(workflow=name, step=item['name'], event=event, ref=ref, source=source):
+                        result = expression(item.get('if', '${{ true }}'), event=event, ref=ref, source=source, cache=True)
                         # Cache path existence is independent of the source-authority guard.
                         self.assertEqual(str(allowed), result)
-                        self.assertEqual('False', expression(item['if'], event=event, source=source, cache=False))
+                        self.assertEqual('False', expression(item['if'], event=event, ref=ref, source=source, cache=False))
                 self.assertTrue(workflow(name)['on']['workflow_call']['inputs']['cache']['default'])
             for job in workflow(name)['jobs'].values():
                 for item in job['steps']:
@@ -897,6 +992,7 @@ os.execv({real_git!r}, [{real_git!r}] + a)
         (self.project / 'unrelated.txt').write_text('before')
         for command in [['init', '-q'], ['config', 'user.name', 'Test'], ['config', 'user.email', 'test@example.test'], ['config', 'commit.gpgsign', 'false'], ['add', '.'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', str(remote)]]:
             subprocess.run(['git'] + command, cwd=self.project, check=True)
+        subprocess.run(['git', 'push', '-q', 'origin', 'HEAD:refs/heads/release-please--main'], cwd=self.project, check=True)
         (self.project / 'pnpm-lock.yaml').write_text('after')
         (self.project / 'unrelated.txt').write_text('after')
         imported = self.root / 'lockfile-import'
@@ -1048,6 +1144,29 @@ class Policy(unittest.TestCase):
                 (workflows / 'fixture.yml').write_text(yaml.safe_dump({'name': 'Fixture', 'on': {'workflow_call': {}}, 'jobs': {'run': {'permissions': permissions}}}))
                 self.assertIn(rendered, reference.render())
 
+    def test_reference_handles_unnamed_workflows_and_distinguishes_inherited_permissions(self):
+        spec = importlib.util.spec_from_file_location('reference', ROOT / 'scripts/reference.py')
+        reference = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reference)
+        with tempfile.TemporaryDirectory() as directory:
+            reference.ROOT = Path(directory)
+            workflows = reference.ROOT / '.github/workflows'
+            workflows.mkdir(parents=True)
+            path = workflows / 'unnamed.yaml'
+            base = {'on': {'workflow_call': {}}, 'jobs': {'run': {'runs-on': 'ubuntu-latest'}}}
+            path.write_text(yaml.safe_dump(base))
+            rendered = reference.render()
+            self.assertIn('unnamed.yaml.', rendered)
+            self.assertIn('inherited from the caller', rendered)
+            self.assertNotIn('no token permissions', rendered)
+            for scope in ['workflow', 'job']:
+                fixture = dict(base, jobs={'run': dict(base['jobs']['run'])})
+                target = fixture if scope == 'workflow' else fixture['jobs']['run']
+                for permissions, expected in [({}, 'no token permissions'), ({'contents': 'read'}, '`contents: read`')]:
+                    target['permissions'] = permissions
+                    path.write_text(yaml.safe_dump(fixture))
+                    self.assertIn(expected, reference.render())
+
     def test_policy_rejects_empty_duplicate_yaml_and_unpinned_job_or_docker_uses(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1077,6 +1196,30 @@ class Policy(unittest.TestCase):
             callee.write_text('on: {workflow_call: {}}\npermissions: {contents: read}\njobs:\n  run:\n    uses: ./.github/workflows/leaf.yml\n')
             caller.write_text(text.replace('contents: read}', 'contents: read, packages: write}'))
             self.assertTrue(any('callee.yml' in error and 'caller must grant packages' in error for error in self.checks.validate(root)))
+
+    def test_local_workflow_calls_reject_noncanonical_paths_including_nested_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            leaf = {'on': {'workflow_call': {}}, 'jobs': {'run': {'runs-on': 'ubuntu-latest', 'timeout-minutes': 5, 'permissions': {'contents': 'read'}, 'steps': [{'run': 'echo okay'}]}}}
+            (root / 'leaf.yml').write_text(yaml.safe_dump(leaf))
+            caller = {'on': 'push', 'permissions': {'contents': 'read'}, 'jobs': {'run': {'uses': './.github/workflows/leaf.yml'}}}
+            path = root / 'caller.yml'
+            path.write_text(yaml.safe_dump(caller))
+            self.assertEqual([], self.checks.validate(root))
+            invalid = ['./.github/workflows/../leaf.yml', './elsewhere/leaf.yml', './.github/workflows/nested/leaf.yml', '$/.github/workflows/leaf.yml', './.github/workflows//leaf.yml']
+            for use in invalid:
+                caller['jobs']['run']['uses'] = use
+                path.write_text(yaml.safe_dump(caller))
+                self.assertTrue(self.checks.validate(root), use)
+                with self.assertRaises(ValueError):
+                    self.checks.call_permissions(path)
+            caller['jobs']['run']['uses'] = './.github/workflows/linked.yml'
+            path.write_text(yaml.safe_dump(caller))
+            with tempfile.TemporaryDirectory() as outside:
+                target = Path(outside) / 'leaf.yml'
+                target.write_text(yaml.safe_dump(leaf))
+                (root / 'linked.yml').symlink_to(target)
+                self.assertTrue(self.checks.validate(root))
 
     def test_registration_and_release_gate_cover_all_checks_and_merge_queue(self):
         tests = workflow('contract-tests.yml')

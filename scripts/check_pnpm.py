@@ -86,6 +86,7 @@ def main():
         remote = directory / 'publication.git'
         git(directory, 'init', '--bare', '-q', str(remote))
         git(fresh, 'remote', 'add', 'origin', str(remote))
+        git(fresh, 'push', '-q', 'origin', 'HEAD:refs/heads/release-please--fixture')
         published = invoke('push', fresh, dict(env, WORKING_DIR=project.name, IMPORT_DIR=str(args.import_directory.resolve()),
             HEAD_REF='release-please--fixture', COMMIT_MESSAGE='fixture lockfile update', PUSH_TOKEN='fixture-only-token'))
         if published.get('status') != 'pushed': raise RuntimeError('Fixture publication did not report pushed')

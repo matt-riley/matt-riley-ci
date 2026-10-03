@@ -46,6 +46,19 @@ def unique_mapping(loader, node, deep=False):
 WorkflowLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
 
 
+def local_workflow(directory, use):
+    # GitHub requires reusable workflows directly inside .github/workflows.
+    # Preserve that contract rather than validating an unrelated basename.
+    if not re.fullmatch(r'\./\.github/workflows/[^/\\]+\.ya?ml', use):
+        raise ValueError('Invalid local reusable workflow path: ' + use)
+    target = directory / use.removeprefix('./.github/workflows/')
+    if target.resolve().parent != directory.resolve():
+        raise ValueError('Local reusable workflow must remain inside .github/workflows: ' + use)
+    if not target.is_file():
+        raise ValueError('Missing local workflow: ' + use)
+    return target
+
+
 def call_permissions(path, seen=None):
     seen = set() if seen is None else seen
     if path in seen:
@@ -62,7 +75,7 @@ def call_permissions(path, seen=None):
             required[key] = max(required.get(key, 0), levels[level])
         use = job.get('uses', '')
         if use.startswith(('./', '$/')):
-            for key, level in call_permissions(path.parent / pathlib.Path(use[2:]).name, seen).items():
+            for key, level in call_permissions(local_workflow(path.parent, use), seen).items():
                 required[key] = max(required.get(key, 0), level)
     return required
 
@@ -94,9 +107,7 @@ def validate(directory):
                 if use and set(job) - CALL_JOB_KEYS:
                     raise ValueError(job_name + ': unsupported reusable caller keys: ' + ', '.join(sorted(set(job) - CALL_JOB_KEYS)))
                 if use.startswith(('./', '$/')):
-                    target = directory / pathlib.Path(use[2:]).name
-                    if not target.is_file():
-                        raise ValueError(job_name + ': missing local workflow: ' + use)
+                    target = local_workflow(directory, use)
                     callee = yaml.load(target.read_text(), Loader=WorkflowLoader)
                     events = callee.get('on', callee.get(True, {}))
                     if not isinstance(events, dict) or 'workflow_call' not in events:

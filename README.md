@@ -85,6 +85,8 @@ For a monorepo, set `working-directory: packages/server`. Artifact and diagnosti
 
 Every input, default, secret, output and job permission is listed in the [generated reference](docs/reference.md). [Complete caller examples](docs/examples.md) include setup, permissions and secrets for each workflow. Runner defaults are GitHub-hosted; arbitrary self-hosted labels must supply the stated tools. Windows PowerShell runners are not supported by Bash adapters.
 
+Artifact paths resolve relative to `working-directory` and must remain inside the repository. A relative path may select a sibling project's output; the project directory is not a separate artifact trust boundary. Homebrew formulas require public source repositories with anonymously downloadable release assets. Authenticated CI downloads cannot make private release URLs usable by end users.
+
 ## Permissions, credentials and trust
 
 Callers must grant the permissions requested by their called workflow. A reusable workflow cannot elevate the caller's token. Start with `contents: read`; grant write permissions only to publishing jobs. Checkouts never persist credentials. Publishing steps use explicit secrets or a temporary credential helper. `registry-token` and `dependency-token` in Universal CI are optional read-only credentials exposed to repository tasks as NODE_AUTH_TOKEN and DEPENDENCY_TOKEN; configure registry/private module access in the consumer's install task and keep tokens out of files/artifacts. These secrets are not available on fork PRs. Aube defaults NODE_AUTH_TOKEN to the job's GitHub token with `packages: read`; `node_auth_token` overrides it.

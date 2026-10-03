@@ -21,7 +21,7 @@ def render():
         if 'workflow_call' not in triggers or path.name == 'contract-tests.yml':
             continue
         call = triggers['workflow_call'] or {}
-        lines += ['## ' + path.name, '', workflow['name'] + '.', '', '| Input | Type | Required | Default | Description |', '| --- | --- | --- | --- | --- |']
+        lines += ['## ' + path.name, '', workflow.get('name', path.name) + '.', '', '| Input | Type | Required | Default | Description |', '| --- | --- | --- | --- | --- |']
         for name, spec in call.get('inputs', {}).items():
             lines.append('| ' + ' | '.join(cell(x) for x in [name, spec['type'], spec.get('required', False), spec.get('default', ''), spec.get('description', '')]) + ' |')
         for title, field in [('Secrets', 'secrets'), ('Outputs', 'outputs')]:
@@ -33,8 +33,10 @@ def render():
                 lines += ['- `' + name + '`: ' + spec.get('description', '') + (' (required)' if spec.get('required') else '') + '.']
         lines += ['', '### Job permissions', '']
         for name, job in workflow['jobs'].items():
-            permissions = job.get('permissions', workflow.get('permissions', {}))
-            if isinstance(permissions, dict):
+            permissions = job.get('permissions', workflow.get('permissions'))
+            if permissions is None:
+                description = 'permissions inherited from the caller (subject to GitHub token restrictions)'
+            elif isinstance(permissions, dict):
                 description = ', '.join('`' + key + ': ' + value + '`' for key, value in permissions.items()) or '`{}` (no token permissions)'
             else:
                 description = '`' + str(permissions) + '`'

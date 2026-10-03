@@ -63,6 +63,10 @@ PNPM lockfile sync now requires an exact trusted PR author (release-pr-author de
 
 runner now selects the generation runner; publish-runner defaults independently to ubuntu-latest. Publication requires an ephemeral runner isolated from generation processes/filesystem. A shared persistent self-hosted machine is not a security boundary, even with a new checkout directory. Generation and publication serialize together per PR branch with a bounded max queue. The existing package lifecycle --ignore-scripts flag remains; pnpmfile hooks may still run, as documented by pnpm, so custom resolution hooks remain usable without publication credentials.
 
+Lockfile generation validates the repository-relative working directory and resolved package.json before reading it, including with an explicit pnpm-version. Publication requires the branch to retain the original PR head through an atomic expected-head lease; branch advances, rewinds and deletions reject stale updates instead of restoring discarded commits. The published lockfile commit must be a direct child of the original head.
+
+Homebrew formula generation supports public source repositories with anonymously downloadable release assets. Private/internal sources now fail before download or formula generation because authentication in CI does not make the generated release URL available to Homebrew users.
+
 Homebrew permits three nonconflicting recovery rebases, with a final fourth push. Exhausting the push budget stops immediately; the job no longer performs a final rebase whose result cannot be pushed.
 
 
