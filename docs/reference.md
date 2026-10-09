@@ -313,7 +313,7 @@ Homebrew Formula.
 ### Secrets
 
 - `github-token`: GitHub token used to read release assets.
-- `homebrew-tap-token`: PAT with contents:write for the Homebrew tap repository; ignored when tap-app-id is set.
+- `homebrew-tap-token`: PAT with contents:write for the Homebrew tap repository; fallback when tap-app-id is unset or its token cannot be minted.
 - `private-key`: GitHub App private key used to mint a short-lived tap token (paired with inputs.tap-app-id).
 
 ### Outputs
