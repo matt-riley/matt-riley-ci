@@ -112,9 +112,29 @@ jobs:
     permissions:
       contents: read
     steps:
+    # Publishing requires a trusted release tag. Decide that before any
+    # credential exists: minting a write-capable token for a run that will be
+    # refused anyway is exposure with no purpose. The formula step below still
+    # enforces the same rule as its own last line of defence.
+    - name: Check release authority
+      id: authority
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        trusted=false
+        case "$GITHUB_EVENT_NAME" in
+          push|release|workflow_dispatch)
+            if [ "$GITHUB_REF" = "refs/tags/$TAG" ] &&
+               printf '%s' "$TAG" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              trusted=true
+            fi
+            ;;
+        esac
+        echo "trusted=$trusted" >> "$GITHUB_OUTPUT"
+      shell: bash
     - name: Split the tap repository
       id: tap
-      if: ${{ inputs.tap-app-id != '' }}
+      if: ${{ steps.authority.outputs.trusted == 'true' && inputs.tap-app-id != '' }}
       env:
         TAP_REPO: ${{ inputs.tap-repo }}
       run: |
@@ -138,7 +158,7 @@ jobs:
         owner: ${{ steps.tap.outputs.owner }}
         repositories: ${{ steps.tap.outputs.name }}
         permission-contents: write
-      if: ${{ inputs.tap-app-id != '' }}
+      if: ${{ steps.authority.outputs.trusted == 'true' && inputs.tap-app-id != '' }}
       continue-on-error: true
     - name: Resolve publishing credential
       id: auth
