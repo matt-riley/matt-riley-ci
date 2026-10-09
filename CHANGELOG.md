@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.0](https://github.com/matt-riley/matt-riley-ci/compare/v4.0.0...v4.1.0) (2026-10-09)
+
+
+### Features
+
+* **homebrew-formula:** mint the tap token from a GitHub App ([#120](https://github.com/matt-riley/matt-riley-ci/issues/120)) ([199a821](https://github.com/matt-riley/matt-riley-ci/commit/199a821df4bedf61b1bcb813fd33eb334a041987))
+
 ## [4.0.0](https://github.com/matt-riley/matt-riley-ci/compare/v3.1.0...v4.0.0) (2026-10-03)
 
 
