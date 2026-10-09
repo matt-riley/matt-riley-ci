@@ -782,6 +782,64 @@ else: sys.exit('unexpected request')
             self.assertFalse((self.root / 'tool.rb').exists())
             self.assertFalse((self.root / 'homebrew-assets').exists())
 
+    def test_homebrew_prefers_an_app_token_and_falls_back_to_a_pat(self):
+        def outputs():
+            return dict(line.split('=', 1) for line in (self.root / 'outputs').read_text().splitlines())
+
+        # A minted App token wins over a PAT, and is masked in the log.
+        result = self.run_step('homebrew-formula.yml', 'auth', MINTED='ghs_minted', PAT='ghp_pat', REQUIRED='true')
+        self.okay(result)
+        self.assertEqual({'status': 'ready', 'token': 'ghs_minted'}, outputs())
+        self.assertIn('::add-mask::ghs_minted', result.stdout)
+
+        # A failed mint degrades to the PAT instead of blocking the release.
+        result = self.run_step('homebrew-formula.yml', 'auth', MINTED='', PAT='ghp_pat', REQUIRED='true')
+        self.okay(result)
+        self.assertEqual({'status': 'ready', 'token': 'ghp_pat'}, outputs())
+
+        # No credential at all is fatal when the caller requires publication.
+        (self.root / 'outputs').unlink(missing_ok=True)
+        result = self.run_step('homebrew-formula.yml', 'auth', MINTED='', PAT='', REQUIRED='true')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('No tap credential', result.stdout)
+        self.assertFalse((self.root / 'outputs').exists())
+
+        # ...and a skippable warning when it does not.
+        result = self.run_step('homebrew-formula.yml', 'auth', MINTED='', PAT='', REQUIRED='false')
+        self.okay(result)
+        self.assertEqual('skipped', outputs()['status'])
+        self.assertIn('no publishing token', result.stdout)
+
+    def test_homebrew_app_token_is_optional_and_needs_an_owner_qualified_tap(self):
+        def outputs():
+            return dict(line.split('=', 1) for line in (self.root / 'outputs').read_text().splitlines())
+
+        # Both new steps stay out of the way when no App is configured.
+        self.assertEqual('False', expression(step('homebrew-formula.yml', 'app-token')['if'], **{'tap-app-id': ''}))
+        self.assertEqual('True', expression(step('homebrew-formula.yml', 'app-token')['if'], **{'tap-app-id': '5152057'}))
+        self.assertEqual('False', expression(step('homebrew-formula.yml', 'tap')['if'], **{'tap-app-id': ''}))
+
+        self.okay(self.run_step('homebrew-formula.yml', 'tap', TAP_REPO='matt-riley/homebrew-tools'))
+        self.assertEqual({'owner': 'matt-riley', 'name': 'homebrew-tools'}, outputs())
+
+        # The token is scoped to one repository, so the split must be exact.
+        for bad in ['homebrew-tools', 'owner/', '/name', 'a/b/c']:
+            with self.subTest(tap_repo=bad):
+                (self.root / 'outputs').unlink(missing_ok=True)
+                result = self.run_step('homebrew-formula.yml', 'tap', TAP_REPO=bad)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn('must be exactly owner/name', result.stdout)
+
+    def test_homebrew_consumers_use_the_resolved_credential(self):
+        """The PAT secret must not reach checkout or push once auth resolves one."""
+        steps = {s.get('id', s.get('name')): s for job in workflow('homebrew-formula.yml')['jobs'].values() for s in job.get('steps', [])}
+        self.assertEqual('${{ steps.auth.outputs.token }}', steps['Checkout tap']['with']['token'])
+        self.assertEqual('${{ steps.auth.outputs.token }}', steps['publish']['env']['PUSH_TOKEN'])
+        for name, script in steps.items():
+            if name == 'auth':
+                continue
+            self.assertNotIn('secrets.homebrew-tap-token', json.dumps(script), name)
+
     def test_homebrew_retries_other_formula_updates_and_preserves_conflicts(self):
         real_git = shutil.which('git')
         def git(*args, cwd=None):

@@ -307,12 +307,14 @@ Homebrew Formula.
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | fail-if-missing-token | boolean | False | True | Fail instead of warning when homebrew-tap-token is not set |
 | test-args | string | False | --version | Shell-style argument list used by the formula test (data, no shell execution) |
+| tap-app-id | string | False |  | Optional GitHub App ID for the tap; paired with private-key and preferred over homebrew-tap-token |
 | environment | string | False |  | Optional protected environment |
 
 ### Secrets
 
 - `github-token`: GitHub token used to read release assets.
-- `homebrew-tap-token`: PAT with contents:write for the Homebrew tap repository.
+- `homebrew-tap-token`: PAT with contents:write for the Homebrew tap repository; ignored when tap-app-id is set.
+- `private-key`: GitHub App private key used to mint a short-lived tap token (paired with inputs.tap-app-id).
 
 ### Outputs
 

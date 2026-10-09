@@ -81,6 +81,11 @@ name: Homebrew Formula
         type: string
         required: false
         default: --version
+      tap-app-id:
+        description: Optional GitHub App ID for the tap; paired with private-key and preferred over homebrew-tap-token
+        type: string
+        required: false
+        default: ''
       environment:
         description: Optional protected environment
         type: string
@@ -91,7 +96,10 @@ name: Homebrew Formula
         description: GitHub token used to read release assets
         required: false
       homebrew-tap-token:
-        description: PAT with contents:write for the Homebrew tap repository
+        description: PAT with contents:write for the Homebrew tap repository; ignored when tap-app-id is set
+        required: false
+      private-key:
+        description: GitHub App private key used to mint a short-lived tap token (paired with inputs.tap-app-id)
         required: false
     outputs:
       status:
@@ -104,17 +112,50 @@ jobs:
     permissions:
       contents: read
     steps:
+    - name: Split the tap repository
+      id: tap
+      if: ${{ inputs.tap-app-id != '' }}
+      env:
+        TAP_REPO: ${{ inputs.tap-repo }}
+      run: |
+        owner="${TAP_REPO%%/*}"
+        name="${TAP_REPO##*/}"
+        if [ "$TAP_REPO" = "$owner" ] || [ "${TAP_REPO#*/}" != "$name" ] || [ -z "$owner" ] || [ -z "$name" ]; then
+          echo '::error title=Invalid tap-repo::tap-repo must be exactly owner/name when tap-app-id is set'
+          exit 1
+        fi
+        echo "owner=$owner" >> "$GITHUB_OUTPUT"
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+      shell: bash
+    # A short-lived installation token is preferred: the key never leaves the
+    # runner, and the token cannot outlive the job.
+    - name: Create GitHub App token for Homebrew tap
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+      with:
+        app-id: ${{ inputs.tap-app-id }}
+        private-key: ${{ secrets.private-key }}
+        owner: ${{ steps.tap.outputs.owner }}
+        repositories: ${{ steps.tap.outputs.name }}
+        permission-contents: write
+      if: ${{ inputs.tap-app-id != '' }}
+      continue-on-error: true
     - name: Resolve publishing credential
       id: auth
       env:
-        HAS_TOKEN: ${{ secrets.homebrew-tap-token != '' }}
+        MINTED: ${{ steps.app-token.outputs.token }}
+        PAT: ${{ secrets.homebrew-tap-token }}
         REQUIRED: ${{ inputs.fail-if-missing-token }}
       run: |
-        if [ "$HAS_TOKEN" != true ]; then
-          [ "$REQUIRED" != true ] || { echo '::error::homebrew-tap-token is required'; exit 1; }
+        token="$MINTED"
+        if [ -z "$token" ]; then token="$PAT"; fi
+        if [ -z "$token" ]; then
+          [ "$REQUIRED" != true ] || { echo '::error::No tap credential: set tap-app-id with private-key, or homebrew-tap-token'; exit 1; }
           echo 'status=skipped' >> "$GITHUB_OUTPUT"
           echo '::warning::Tap update skipped: no publishing token'
         else
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
           echo 'status=ready' >> "$GITHUB_OUTPUT"
         fi
       shell: bash
@@ -190,7 +231,7 @@ jobs:
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       with:
         repository: ${{ inputs.tap-repo }}
-        token: ${{ secrets.homebrew-tap-token }}
+        token: ${{ steps.auth.outputs.token }}
         path: .ci/homebrew-tap
         persist-credentials: false
     - name: Publish validated formula
@@ -200,7 +241,7 @@ jobs:
       env:
         FORMULA_NAME: ${{ inputs.formula-name }}
         TAG: ${{ inputs.tag }}
-        PUSH_TOKEN: ${{ secrets.homebrew-tap-token }}
+        PUSH_TOKEN: ${{ steps.auth.outputs.token }}
       run: |
         # shellcheck disable=SC2016
         # The helper expands PUSH_TOKEN only when git invokes it.
