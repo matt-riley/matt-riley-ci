@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.1](https://github.com/matt-riley/matt-riley-ci/compare/v4.1.0...v4.1.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **go-security:** bump govulncheck for Go 1.27 ([#126](https://github.com/matt-riley/matt-riley-ci/issues/126)) ([6141b3d](https://github.com/matt-riley/matt-riley-ci/commit/6141b3dc1d0a1703bd1933ec00629b399a1ba032))
+
 ## [4.1.0](https://github.com/matt-riley/matt-riley-ci/compare/v4.0.0...v4.1.0) (2026-10-09)
 
 
