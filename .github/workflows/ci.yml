@@ -112,7 +112,7 @@ name: Universal CI
         description: Pinned mise release
         type: string
         required: false
-        default: 2026.9.18
+        default: 2026.10.11
       install-tools:
         description: Optional mise install arguments, e.g. node pnpm; empty installs tools declared by the consumer
         type: string

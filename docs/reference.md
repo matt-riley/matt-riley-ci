@@ -65,7 +65,7 @@ Universal CI.
 | artifact-retention-days | number | False | 7 | Artifact retention in days |
 | failure-artifact-path | string | False |  | Optional diagnostic paths to upload when tasks fail, relative to working-directory |
 | failure-artifact-name | string | False | ci-diagnostics | Unique name for failure diagnostics |
-| mise-version | string | False | 2026.9.18 | Pinned mise release |
+| mise-version | string | False | 2026.10.11 | Pinned mise release |
 | install-tools | string | False |  | Optional mise install arguments, e.g. node pnpm; empty installs tools declared by the consumer |
 | task-jobs | number | False | 1 | Maximum parallel tasks; dependencies/order are owned by the repository task graph |
 | playwright-cache | boolean | False | False | Restore browser binaries only in jobs that run browser tests; OS libraries remain the task/runner responsibility |
