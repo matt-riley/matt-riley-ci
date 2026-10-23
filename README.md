@@ -121,7 +121,7 @@ mise run ci
 
 Setup installs pinned validators in `.venv`; subsequent checks do not reinstall them. Run `mise run reference` to regenerate the workflow reference with that environment. The single check command validates .yml/.yaml syntax, duplicate keys, all action/reusable/container pins, shell/expression semantics, security policy, every executable Python contract and generated reference drift. The hosted suite additionally runs real Go/Aube/mise/Docker/Neovim consumer workflows and verifies build/coverage artifact handoff. PRs and merge queues run the full suite without path filters. Main pushes call that same suite before release-please; release commits therefore validate the exact source revision before advancing a major tag.
 
-Local validation requires the mise command itself on PATH, including when running Python tests directly: a real task-graph regression invokes it. Hosted validation provisions mise 2026.9.18 explicitly with mise-action before running the suite.
+Local validation requires the mise command itself on PATH, including when running Python tests directly: a real task-graph regression invokes it. Hosted validation provisions mise 2026.10.11 explicitly with mise-action before running the suite.
 
 This repository's policy requires explicit scoped permission mappings throughout local reusable call chains. GitHub's `read-all`/`write-all` shorthand is intentionally outside that policy. YAML anchors and aliases are supported; the pinned workflow validator rejects merge directives (`<<`), so use whole aliases.
 
