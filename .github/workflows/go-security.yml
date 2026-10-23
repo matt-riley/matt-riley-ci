@@ -18,9 +18,9 @@ name: Go Security
         default: .
         type: string
       govulncheck-version:
-        description: govulncheck module version (e.g. v1.1.4; set latest to float)
+        description: govulncheck module version (e.g. v1.9.0; set latest to float)
         required: false
-        default: v1.1.4
+        default: v1.9.0
         type: string
       timeout-minutes:
         description: Job timeout in minutes

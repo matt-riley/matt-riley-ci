@@ -509,7 +509,7 @@ else: sys.exit('unexpected request')
         self.assertIn('--skip=homebrew', Path(self.env['GITHUB_OUTPUT']).read_text())
 
     def test_scanner_cache_only_reuses_exact_pinned_versions(self):
-        for version, cacheable in [('v1.1.4', 'true'), ('latest', 'false'), ('main', 'false')]:
+        for version, cacheable in [('v1.9.0', 'true'), ('latest', 'false'), ('main', 'false')]:
             Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
             self.okay(self.run_step('go-security.yml', 'scanner', VERSION=version))
             self.assertIn('cacheable=' + cacheable, Path(self.env['GITHUB_OUTPUT']).read_text())

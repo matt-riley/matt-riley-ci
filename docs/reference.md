@@ -267,7 +267,7 @@ Go Security.
 | go-version-file | string | False |  | Module file relative to repository root; empty resolves working-directory/go.mod |
 | runner | string | False | ubuntu-latest | Runner label |
 | working-directory | string | False | . | Directory to run govulncheck in; empty selects repository root |
-| govulncheck-version | string | False | v1.1.4 | govulncheck module version (e.g. v1.1.4; set latest to float) |
+| govulncheck-version | string | False | v1.9.0 | govulncheck module version (e.g. v1.9.0; set latest to float) |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | cache | boolean | False | True | Restore dependency/build/tool caches; disable for private dependencies |
 | save-cache | boolean | False | False | Save Go caches after successful checks on trusted default-branch runs; designate one writer per pipeline |
