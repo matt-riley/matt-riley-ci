@@ -1524,7 +1524,7 @@ class Policy(unittest.TestCase):
         self.assertEqual(3, len(tests['jobs']['queue-proof']['strategy']['matrix']['item']))
         bootstrap = step('contract-tests.yml', 'Install actionlint')
         self.assertTrue(bootstrap['uses'].startswith('jdx/mise-action@'))
-        self.assertEqual('2026.10.11', str(bootstrap['with']['version']))
+        self.assertEqual('2026.10.17', str(bootstrap['with']['version']))
         release = workflow('repository-release-please.yml')
         self.assertEqual('validate', release['jobs']['release']['needs'])
         run = step('repository-release-please.yml', 'move')['run']
