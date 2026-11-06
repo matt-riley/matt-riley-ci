@@ -1,5 +1,5 @@
 [tools]
-node = "24"
+node = "26"
 
 [tasks.install]
 run = "npm ci && node -e \"require('fs').appendFileSync('install-count.txt', 'install\\n')\""
