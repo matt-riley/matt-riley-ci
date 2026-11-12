@@ -225,6 +225,29 @@ jobs:
     uses: matt-riley/matt-riley-ci/.github/workflows/nvim-tests.yml@REVIEWED_COMMIT_SHA
 ```
 
+## nvim-docs.yml
+
+Opt-in: regenerate a plugin's vim help and commit it. It installs the pinned Neovim and mini.nvim exactly like nvim-tests.yml, runs `docs-command` (default `make docs`, with `MINI_PATH` pointing at the pinned mini.nvim checkout) from working-directory, then commits what changed under `file-pattern` (default `.`; use `doc/*.txt` to limit it) as github-actions[bot] with `commit-message` (default `chore(docs): regenerate vim help`) and pushes to the current branch. Nothing is committed for events other than push and workflow_dispatch, for `commit: false`, or when nothing changed. The push uses the workflow token, so it does not start further runs; pass a `token` secret with contents write if the branch needs another identity. The generator step never sees the push token. Path filters and concurrency belong in the caller; pushes are never forced, so give the caller a concurrency group to avoid a rejected push.
+
+```yaml
+name: Docs
+'on':
+  push:
+    branches: [main]
+    paths: ['lua/**', 'plugin/**', 'Makefile']
+  workflow_dispatch: null
+permissions:
+  contents: read
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  run:
+    permissions:
+      contents: write
+    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-docs.yml@REVIEWED_COMMIT_SHA
+```
+
 ## pnpm-lockfile-sync.yml
 
 Only same-repository PRs matching both the release-please-- branch prefix and the required release-pr-author run. Set the exact App/PAT author login used by your release automation; use github-actions[bot] only for PRs actually opened by that identity. Replace the example's release-automation[bot] with your configured login. Commit package.json with packageManager: pnpm@<version>, or set pnpm-version. Generation runs with a read-only token and no push secret; changed lockfile bytes pass through a same-run artifact to a fresh checkout on an isolated ephemeral publish-runner (ubuntu-latest by default). The supplied token needs contents write; App/PAT credentials permit subsequent push-triggered CI. Custom install commands and pnpmfile hooks stay in the generation job. A stale run whose branch moved or was deleted reports superseded; authentication/network failures remain errors.

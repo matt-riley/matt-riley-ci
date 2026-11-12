@@ -1,0 +1,225 @@
+name: Neovim Docs (mini.doc)
+'on':
+  workflow_call:
+    inputs:
+      docs-command:
+        description: Command that regenerates the vim help, run with bash from working-directory; MINI_PATH points at the pinned mini.nvim checkout
+        required: false
+        default: make docs
+        type: string
+      commit:
+        description: Commit and push regenerated files to the current branch; only happens for push and workflow_dispatch events. Set false to generate without committing
+        required: false
+        default: true
+        type: boolean
+      file-pattern:
+        description: Shell-style quoted git pathspec list, relative to working-directory, limiting what is committed (for example doc/*.txt)
+        required: false
+        default: .
+        type: string
+      commit-message:
+        description: Commit message for regenerated docs
+        required: false
+        default: 'chore(docs): regenerate vim help'
+        type: string
+      neovim-version:
+        description: Exact Neovim release tag, or nightly for intentional compatibility testing
+        required: false
+        default: v0.12.5
+        type: string
+      neovim-sha256:
+        description: Reviewed SHA-256 override takes precedence over the default pin; required for nondefault stable releases. Empty nightly uses metadata.
+        required: false
+        default: ''
+        type: string
+      mini-version:
+        description: 'Immutable mini.nvim commit SHA (default: v0.17.0)'
+        required: false
+        default: a995fe9cd4193fb492b5df69175a351a74b3d36b
+        type: string
+      runner:
+        description: Runner label; self-hosted runners must provision gh, Python 3, git and archive tools
+        required: false
+        default: ubuntu-latest
+        type: string
+      timeout-minutes:
+        description: Job timeout in minutes
+        required: false
+        default: 15
+        type: number
+      working-directory:
+        description: Directory containing the plugin and its docs command
+        type: string
+        required: false
+        default: .
+    secrets:
+      token:
+        description: Optional token with contents:write used only to push the docs commit; defaults to the workflow GITHUB_TOKEN, which does not trigger further workflow runs
+        required: false
+    outputs:
+      changed:
+        description: Whether the docs command changed files matching file-pattern
+        value: ${{ jobs.docs.outputs.changed }}
+      committed:
+        description: Whether a docs commit was pushed
+        value: ${{ jobs.docs.outputs.committed }}
+jobs:
+  docs:
+    # Callers own triggers, path filters and concurrency. Generation runs on any event without a write credential in its environment;
+    # the commit step is limited to push and workflow_dispatch events on a branch.
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+      committed: ${{ steps.publish.outputs.committed }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        persist-credentials: false
+    - name: Install Neovim
+      env:
+        VERSION: ${{ inputs.neovim-version }}
+        EXPECTED_SHA256: ${{ inputs.neovim-sha256 }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        for executable in gh python3 tar git; do
+          command -v "$executable" >/dev/null || { echo "::error::Runner prerequisite missing: $executable. Provision it on self-hosted runners."; exit 1; }
+        done
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64) platform=linux-x86_64;;
+          Linux/ARM64) platform=linux-arm64;;
+          macOS/X64) platform=macos-x86_64;;
+          macOS/ARM64) platform=macos-arm64;;
+          *) echo '::error::Neovim tests support Linux/macOS x64/arm64 runners'; exit 1;;
+        esac
+        [[ "$VERSION" = nightly || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+        [[ "$VERSION" = v0.12.5 || "$VERSION" = nightly || "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::Release overrides require neovim-sha256'; exit 1; }
+        install_dir="$RUNNER_TEMP/neovim"
+        mkdir -p "$install_dir"
+        if [ "$VERSION" != nightly ] || [ -n "$EXPECTED_SHA256" ]; then
+          gh release download "$VERSION" --repo neovim/neovim --pattern "nvim-$platform.tar.gz" --dir "$install_dir"
+        fi
+        export ASSET_NAME="nvim-$platform.tar.gz"
+        python3 - <<'PY'
+        import hashlib, json, os, pathlib, re, subprocess
+        pinned = {
+            'nvim-linux-x86_64.tar.gz': 'bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875',
+            'nvim-linux-arm64.tar.gz': '1aa5ca085249580ae0f91eb14f27ec0919773ff2d99a163d03f3d6c21ac29725',
+            'nvim-macos-x86_64.tar.gz': '81f4518622cb059b450ee2e498c6a1082a222f6bd89589de5bbcf0c6a68aa3fd',
+            'nvim-macos-arm64.tar.gz': '65fb000099e47ca1b762584c484cc833f40e30851a0ec450d4174e16317c1f9b',
+        }
+        e = os.environ
+        directory = pathlib.Path(e['RUNNER_TEMP']) / 'neovim'
+        archive = directory / e['ASSET_NAME']
+        expected = e['EXPECTED_SHA256'] or (pinned[e['ASSET_NAME']] if e['VERSION'] == 'v0.12.5' else '')
+        if not expected and e['VERSION'] == 'nightly':
+            # Resolve the asset ID and digest together. A replacement can delete
+            # that ID, so allow one fresh snapshot without relaxing verification.
+            for attempt in range(2):
+                try:
+                    assets = json.loads(subprocess.check_output(['gh', 'api', 'repos/neovim/neovim/releases/tags/nightly'], text=True))['assets']
+                    matching = [a for a in assets if a['name'] == e['ASSET_NAME']]
+                    if len(matching) != 1: raise SystemExit('Nightly requires exactly one matching release asset')
+                    asset = matching[0]
+                    digest = asset.get('digest') or ''
+                    expected = digest.removeprefix('sha256:') if digest.startswith('sha256:') else ''
+                    if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Nightly requires GitHub SHA-256 metadata')
+                    if type(asset.get('id')) is not int or asset['id'] <= 0: raise SystemExit('Nightly requires a valid release asset ID')
+                    with archive.open('wb') as out:
+                        subprocess.run(['gh', 'api', 'repos/neovim/neovim/releases/assets/' + str(asset['id']), '-H', 'Accept: application/octet-stream'], stdout=out, check=True)
+                except subprocess.CalledProcessError:
+                    if attempt == 1: raise SystemExit('Nightly download failed after one retry')
+                    print('::notice::Nightly asset unavailable; retrying with a fresh metadata snapshot')
+                    continue
+                if hashlib.sha256(archive.read_bytes()).hexdigest() == expected: break
+                if attempt == 1: raise SystemExit('Neovim asset checksum mismatch')
+                print('::notice::Nightly checksum mismatch; retrying with a fresh metadata snapshot')
+        if not re.fullmatch(r'[0-9a-f]{64}', expected): raise SystemExit('Release overrides require neovim-sha256; nightly requires GitHub SHA-256 metadata')
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != expected: raise SystemExit('Neovim asset checksum mismatch')
+        PY
+        tar -xzf "$install_dir/nvim-$platform.tar.gz" -C "$install_dir"
+        echo "$install_dir/nvim-$platform/bin" >> "$GITHUB_PATH"
+      shell: bash
+    - name: Fetch pinned mini.nvim
+      env:
+        MINI_SHA: ${{ inputs.mini-version }}
+      run: |
+        [[ "$MINI_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::mini-version must be an immutable commit SHA'; exit 1; }
+        mini_dir="$RUNNER_TEMP/mini.nvim"
+        git init "$mini_dir"
+        git -C "$mini_dir" remote add origin https://github.com/nvim-mini/mini.nvim.git
+        git -C "$mini_dir" fetch --depth=1 origin "$MINI_SHA"
+        git -C "$mini_dir" checkout --detach FETCH_HEAD
+        test "$(git -C "$mini_dir" rev-parse HEAD)" = "$MINI_SHA"
+      shell: bash
+    - name: Generate docs
+      id: generate
+      env:
+        MINI_PATH: ${{ runner.temp }}/mini.nvim
+        DOCS_COMMAND: ${{ inputs.docs-command }}
+      run: |
+        [ -n "${DOCS_COMMAND//[[:space:]]/}" ] || { echo '::error::docs-command cannot be empty'; exit 1; }
+        bash --noprofile --norc -eo pipefail -c "$DOCS_COMMAND"
+      shell: bash
+    - name: Detect changed docs
+      id: detect
+      env:
+        FILE_PATTERN: ${{ inputs.file-pattern }}
+      run: |
+        mapfile -t patterns < <(python3 -I -c 'import os, shlex; print("\n".join(shlex.split(os.environ["FILE_PATTERN"])))')
+        [ "${#patterns[@]}" -gt 0 ] || { echo '::error::file-pattern needs at least one pathspec'; exit 1; }
+        if [ -n "$(git status --porcelain -- "${patterns[@]}")" ]; then changed=true; else changed=false; fi
+        echo "changed=$changed" >> "$GITHUB_OUTPUT"
+        git status --short -- "${patterns[@]}"
+      shell: bash
+    - name: Commit and push docs
+      id: publish
+      if: ${{ steps.detect.outputs.changed == 'true' && inputs.commit && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' }}
+      env:
+        FILE_PATTERN: ${{ inputs.file-pattern }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        BRANCH: ${{ github.ref_name }}
+        PUSH_TOKEN: ${{ secrets.token || github.token }}
+        REMOTE_URL: ${{ format('{0}/{1}.git', github.server_url, github.repository) }}
+      run: |
+        # shellcheck disable=SC2016
+        # The helper expands PUSH_TOKEN only when git invokes it.
+        set -euo pipefail
+        [ -n "${COMMIT_MESSAGE//[[:space:]]/}" ] || { echo '::error::commit-message cannot be empty'; exit 1; }
+        authenticated_git() {
+          # shellcheck disable=SC2016
+          git -c core.hooksPath=/dev/null -c credential.helper= -c 'credential.helper=!f() { printf "username=x-access-token\npassword=%s\n" "$PUSH_TOKEN"; }; f' "$@"
+        }
+        mapfile -t patterns < <(python3 -I -c 'import os, shlex; print("\n".join(shlex.split(os.environ["FILE_PATTERN"])))')
+        git config user.name 'github-actions[bot]'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+        git add --all -- "${patterns[@]}"
+        git -c core.hooksPath=/dev/null commit --message "$COMMIT_MESSAGE"
+        authenticated_git push "$REMOTE_URL" "HEAD:refs/heads/$BRANCH"
+        echo 'committed=true' >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Neovim docs
+        FIELD_0: ${{ steps.generate.outcome }}
+        FIELD_1: ${{ steps.detect.outputs.changed }}
+        FIELD_2: ${{ steps.publish.outputs.committed }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- Generate: %s\n" "$FIELD_0"
+          printf -- "- Changed: %s\n" "$FIELD_1"
+          printf -- "- Committed: %s\n" "$FIELD_2"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory || '.' }}
