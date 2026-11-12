@@ -59,6 +59,8 @@ jobs:
       coverage-path: coverage.out
       coverage-artifact-name: go-coverage
       build-command: go build -ldflags "-s -w" ./...
+      run-verify: true
+      run-tidy: true
   go-snapshot:
     # The called workflow includes a release job; the active snapshot job is read-only.
     permissions:

@@ -37,6 +37,16 @@ name: Go CI
         required: false
         default: false
         type: boolean
+      run-verify:
+        description: Run go mod verify to check that downloaded module contents match go.sum
+        required: false
+        default: false
+        type: boolean
+      run-tidy:
+        description: Fail if go mod tidy would change go.mod or go.sum (the files are restored afterwards)
+        required: false
+        default: false
+        type: boolean
       timeout-minutes:
         description: Job timeout in minutes
         required: false
@@ -209,6 +219,39 @@ jobs:
         BUILD_COMMAND: ${{ inputs.build-command }}
       run: |
         bash --noprofile --norc -eo pipefail -c "$BUILD_COMMAND"
+      shell: bash
+    - name: Verify modules (go mod verify)
+      id: verify
+      if: ${{ inputs.run-verify }}
+      run: |
+        go mod verify
+      shell: bash
+    - name: Check go mod tidy
+      id: tidy
+      if: ${{ inputs.run-tidy }}
+      run: |
+        reference="$(mktemp -d)"
+        had_sum=false
+        cp go.mod "$reference/go.mod"
+        if [ -e go.sum ]; then had_sum=true; cp go.sum "$reference/go.sum"; else : > "$reference/go.sum"; fi
+        restore() {
+          cp "$reference/go.mod" go.mod
+          if [ "$had_sum" = true ]; then cp "$reference/go.sum" go.sum; else rm -f go.sum; fi
+          rm -rf "$reference"
+        }
+        trap restore EXIT
+        go mod tidy
+        changed=false
+        for file in go.mod go.sum; do
+          current="$file"
+          [ -e "$current" ] || current=/dev/null
+          if ! diff -u --label "a/$file" --label "b/$file" "$reference/$file" "$current"; then changed=true; fi
+        done
+        if [ "$changed" = true ]; then
+          echo '::error title=go mod tidy would change files::Run go mod tidy and commit go.mod and go.sum.'
+          exit 1
+        fi
+        echo 'go.mod and go.sum are tidy.'
       shell: bash
     - name: Test
       id: test
