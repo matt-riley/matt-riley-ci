@@ -176,6 +176,7 @@ Go CI.
 | build-command | string | False |  | Optional build command to run before tests |
 | coverage-path | string | False |  | Optional coverage file path relative to working-directory to upload as an artifact |
 | coverage-artifact-name | string | False |  | Artifact name for uploaded coverage output |
+| coverage-threshold | number | False | 0 | Minimum total statement coverage percent (0-100) read from the Go profile named by coverage-path; 0 disables the gate. Requires run-test, coverage-path, coverage-artifact-name and test-args or test-command that write the profile |
 | artifact-retention-days | number | False | 7 | Coverage/diagnostic retention |
 | failure-artifact-path | string | False |  | Optional diagnostics relative to working-directory |
 | failure-artifact-name | string | False | go-diagnostics | Unique failure artifact name |

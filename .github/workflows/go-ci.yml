@@ -67,6 +67,12 @@ name: Go CI
         required: false
         default: ''
         type: string
+      coverage-threshold:
+        description: Minimum total statement coverage percent (0-100) read from the Go profile named by coverage-path; 0 disables the gate. Requires run-test,
+          coverage-path, coverage-artifact-name and test-args or test-command that write the profile
+        required: false
+        default: 0
+        type: number
       artifact-retention-days:
         description: Coverage/diagnostic retention
         type: number
@@ -202,6 +208,24 @@ jobs:
         echo "::error title=Invalid Go CI inputs::coverage-path and coverage-artifact-name must be set together to upload coverage artifacts."
         exit 1
       shell: bash
+    - name: Validate coverage threshold
+      id: coverage-threshold-inputs
+      if: ${{ inputs.coverage-threshold != 0 }}
+      env:
+        THRESHOLD: ${{ inputs.coverage-threshold }}
+        COVERAGE_PATH: ${{ inputs.coverage-path }}
+        RUN_TEST: ${{ inputs.run-test }}
+      run: |
+        fail() { echo "::error title=Invalid Go CI inputs::$1"; exit 1; }
+        [[ "$THRESHOLD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail 'coverage-threshold must be a number above 0 and at most 100 (0 disables the gate).'
+        awk -v t="$THRESHOLD" 'BEGIN { exit !(t > 0 && t <= 100) }' || fail 'coverage-threshold must be a number above 0 and at most 100 (0 disables the gate).'
+        [ "$RUN_TEST" = true ] || fail 'coverage-threshold requires run-test.'
+        [ -n "${COVERAGE_PATH//[[:space:]]/}" ] || fail 'coverage-threshold requires coverage-path to name the Go coverage profile.'
+        mapfile -t lines <<< "$COVERAGE_PATH"
+        if [ "${#lines[@]}" -ne 1 ] || [[ "${lines[0]}" == '!'* || "${lines[0]}" == *[\*\?\[]* ]]; then
+          fail 'coverage-threshold needs coverage-path to be one exact file path, with no globs or exclusions.'
+        fi
+      shell: bash
     - name: Build
       id: build
       if: ${{ inputs.build-command != '' }}
@@ -243,6 +267,25 @@ jobs:
       run: |
         unformatted="$(gofmt -l .)"
         [ -z "$unformatted" ] || { printf "%s\n" "$unformatted"; exit 1; }
+      shell: bash
+    - name: Enforce coverage threshold
+      id: coverage-threshold
+      if: ${{ inputs.coverage-threshold != 0 }}
+      env:
+        THRESHOLD: ${{ inputs.coverage-threshold }}
+        COVERAGE_PATH: ${{ inputs.coverage-path }}
+      run: |
+        fail() { echo "::error title=Coverage below threshold::$1"; exit 1; }
+        profile="$(printf '%s' "$COVERAGE_PATH" | tr -d '[:space:]')"
+        [ -s "$profile" ] || fail "Go coverage profile $profile is missing or empty; make test-args or test-command write it (for example -coverprofile=$profile)."
+        total="$(go tool cover -func="$profile" | awk '/^total:/ { gsub(/%/, "", $NF); print $NF }')"
+        [[ "$total" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "Could not read the total coverage from $profile."
+        echo "Total coverage: ${total}% (threshold ${THRESHOLD}%)"
+        printf '### Coverage threshold\n\n- total: %s%%\n- threshold: %s%%\n' "$total" "$THRESHOLD" >> "$GITHUB_STEP_SUMMARY"
+        if awk -v c="$total" -v t="$THRESHOLD" 'BEGIN { exit !(c + 0 < t + 0) }'; then
+          fail "Coverage ${total}% is below threshold ${THRESHOLD}%"
+        fi
+        echo "Coverage threshold met."
       shell: bash
     - name: Upload coverage artifact
       id: coverage
