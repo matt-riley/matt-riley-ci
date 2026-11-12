@@ -72,7 +72,7 @@ For a monorepo, set `working-directory: packages/server`. Artifact and diagnosti
 | `aube-ci.yml` | Node package CI through pinned Aube, strict scripts/lockfiles | Linux/macOS supported by Aube |
 | `docker-ghcr-publish.yml` | Native/multi-platform GHCR image validation or publishing | Linux with Docker; supported platforms listed in reference |
 | `cloudflare-pages-deploy.yml` | Deploy an existing same-run site artifact | Linux; Node used only to run Wrangler |
-| `publish-npm.yml` | Opt-in: install/build and `npm publish` a package (GitHub Packages by default) after a release, with a dry-run mode | Linux with Node/npm |
+| `release-publish-npm.yml` | Opt-in: install/build and `npm publish` a package (GitHub Packages by default) after a release, with a dry-run mode | Linux with Node/npm |
 | `go-goreleaser.yml` | Snapshot validation or tagged release, optional tap token | Linux/macOS supported by GoReleaser |
 | `homebrew-formula.yml` | Generate, syntax-check and push a tap formula from release assets | Linux with gh, Python and Ruby |
 | `nvim-format.yml` | Pinned StyLua | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |

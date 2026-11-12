@@ -316,7 +316,7 @@ jobs:
       PRIVATE_KEY: ${{ secrets.INFRA_DISPATCH_PRIVATE_KEY }}
 ```
 
-## publish-npm.yml
+## release-publish-npm.yml
 
 Opt-in follow-on that replaces the `publish-typescript-client` (flagz) and `publish-package` (agent-skills) jobs. It checks out `ref` (pass release-please's `tag_name`, or `component_tag_name` for a monorepo package), sets up Node with `registry-url` (default GitHub Packages) and `scope` (default: the repository owner), and, when `ref` is set and `verify-version` is true, requires the ref to end with the `package.json` version. `install-command` and `build-command` (both empty by default) run first without any publish credential; only the final `npm publish` step receives `NODE_AUTH_TOKEN`, which is the optional `token` secret or else the workflow's GITHUB_TOKEN, so the default needs `packages: write` on the calling job and no new secret. Pass `token` only to publish to a registry that needs its own token. `access`, `dist-tag` and `dry-run` map to npm publish flags (`dry-run` packs and checks without publishing). Provenance and OIDC trusted publishing are not offered: both would force every caller to grant `id-token: write`.
 
@@ -342,7 +342,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: matt-riley/matt-riley-ci/.github/workflows/publish-npm.yml@REVIEWED_COMMIT_SHA
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-publish-npm.yml@REVIEWED_COMMIT_SHA
     with:
       ref: ${{ needs.release-please.outputs.component_tag_name }}
       working-directory: clients/typescript

@@ -9,7 +9,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/publish-npm.yml').read_text())
+WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/release-publish-npm.yml').read_text())
 JOB = WORKFLOW['jobs']['publish']
 INPUTS = WORKFLOW['on']['workflow_call']['inputs']
 
@@ -18,7 +18,7 @@ def step(identity):
     return next(s for s in JOB['steps'] if s.get('id', s.get('name')) == identity)
 
 
-class PublishNpm(unittest.TestCase):
+class ReleasePublishNpm(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

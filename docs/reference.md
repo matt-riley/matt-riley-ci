@@ -432,7 +432,36 @@ None.
 - `generate`: `contents: read`.
 - `publish`: `contents: read`.
 
-## publish-npm.yml
+## release-please.yml
+
+Release Please.
+
+| Input | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| config-file | string | False | release-please-config.json | Path to release-please config |
+| runner | string | False | ubuntu-latest | Runner label |
+| manifest-file | string | False | .release-please-manifest.json | Path to release-please manifest |
+| component-output-key | string | False |  | Optional component path for monorepo outputs (for example clients/typescript) |
+| target-branch | string | False |  | Release target branch; empty uses repository default branch |
+| environment | string | False |  | Optional protected environment |
+
+### Secrets
+
+- `token`: GitHub token.
+
+### Outputs
+
+- `release_created`: Whether a release was created.
+- `tag_name`: Created release tag.
+- `component_release_created`: Whether release was created for component-output-key.
+- `component_tag_name`: Created release tag for component-output-key.
+- `raw_outputs_json`: All release-please step outputs as JSON.
+
+### Job permissions
+
+- `release-please`: `contents: write`, `issues: write`, `pull-requests: write`.
+
+## release-publish-npm.yml
 
 npm Publish.
 
@@ -463,35 +492,6 @@ None.
 ### Job permissions
 
 - `publish`: `contents: read`, `packages: write`.
-
-## release-please.yml
-
-Release Please.
-
-| Input | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| config-file | string | False | release-please-config.json | Path to release-please config |
-| runner | string | False | ubuntu-latest | Runner label |
-| manifest-file | string | False | .release-please-manifest.json | Path to release-please manifest |
-| component-output-key | string | False |  | Optional component path for monorepo outputs (for example clients/typescript) |
-| target-branch | string | False |  | Release target branch; empty uses repository default branch |
-| environment | string | False |  | Optional protected environment |
-
-### Secrets
-
-- `token`: GitHub token.
-
-### Outputs
-
-- `release_created`: Whether a release was created.
-- `tag_name`: Created release tag.
-- `component_release_created`: Whether release was created for component-output-key.
-- `component_tag_name`: Created release tag for component-output-key.
-- `raw_outputs_json`: All release-please step outputs as JSON.
-
-### Job permissions
-
-- `release-please`: `contents: write`, `issues: write`, `pull-requests: write`.
 
 ## request-app-deploy.yml
 
