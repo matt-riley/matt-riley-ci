@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.2.0](https://github.com/matt-riley/matt-riley-ci/compare/v4.1.1...v4.2.0) (2026-11-12)
+
+
+### Features
+
+* **go-ci:** add optional coverage-threshold input ([#132](https://github.com/matt-riley/matt-riley-ci/issues/132)) ([9489c0c](https://github.com/matt-riley/matt-riley-ci/commit/9489c0c9a5e089071a51b4f8c7fa9483140b9867))
+* **go-ci:** add optional run-verify and run-tidy module checks ([#133](https://github.com/matt-riley/matt-riley-ci/issues/133)) ([8107c87](https://github.com/matt-riley/matt-riley-ci/commit/8107c8711262e6ebf91fa7ae692292b22bbf9011))
+* **nvim-docs:** add opt-in reusable workflow to generate and commit vim help ([#134](https://github.com/matt-riley/matt-riley-ci/issues/134)) ([ede36b3](https://github.com/matt-riley/matt-riley-ci/commit/ede36b30e8c8f6a9723146897de27404620155d9))
+* **nvim-typecheck:** add opt-in reusable LuaLS typecheck workflow ([#135](https://github.com/matt-riley/matt-riley-ci/issues/135)) ([8df03f0](https://github.com/matt-riley/matt-riley-ci/commit/8df03f05ac262e246a0a019c03bd3495b64186e7))
+* **release-please-dispatch:** add opt-in follow-on to dispatch the tag publisher ([#136](https://github.com/matt-riley/matt-riley-ci/issues/136)) ([8f815f1](https://github.com/matt-riley/matt-riley-ci/commit/8f815f13cc0f5582d4014d66f09b02ff94b6da13))
+* **release-publish-npm:** add opt-in workflow to publish an npm package ([#137](https://github.com/matt-riley/matt-riley-ci/issues/137)) ([17817ad](https://github.com/matt-riley/matt-riley-ci/commit/17817adaf4323dddd86a725ef2ba3f8d1cdf3866))
+
 ## [4.1.1](https://github.com/matt-riley/matt-riley-ci/compare/v4.1.0...v4.1.1) (2026-10-23)
 
 
