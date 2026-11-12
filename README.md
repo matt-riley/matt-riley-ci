@@ -81,6 +81,7 @@ For a monorepo, set `working-directory: packages/server`. Artifact and diagnosti
 | `nvim-docs.yml` | Opt-in: generate vim help with the consumer's docs command and commit it | Linux/macOS x64/arm64 with gh, Python 3, git and archive tools |
 | `pnpm-lockfile-sync.yml` | Generate and publish a trusted release PR lockfile in isolated jobs | Linux with pnpm/Node |
 | `release-please.yml` | Release PRs and tagged releases; generic monorepo outputs | Linux with release-please |
+| `release-please-dispatch.yml` | Opt-in follow-on job after release-please: dispatch a tag publisher (GoReleaser, Docker, Homebrew) when the release token is absent | Linux with gh |
 | `request-app-deploy.yml` | Request exact source/artifact deployment from matt-riley/infra | Linux; project-specific target |
 | `request-infra-deploy.yml` | Request deployment from an explicit generic infra repository | Linux |
 | `tailscale-acl.yml` | Validate/apply policy with workload identity federation | Linux supported by Tailscale's action |

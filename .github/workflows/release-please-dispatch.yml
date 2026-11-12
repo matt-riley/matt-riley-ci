@@ -1,0 +1,87 @@
+name: Release Please Dispatch
+'on':
+  workflow_call:
+    inputs:
+      release-created:
+        description: The release_created output of release-please.yml; the follow-on only runs for true
+        required: true
+        type: string
+      tag:
+        description: The tag_name output of release-please.yml; the workflow is dispatched at this tag
+        required: true
+        type: string
+      workflow:
+        description: File name of the workflow to dispatch at the tag (for example goreleaser.yml, docker-publish.yml or homebrew.yml); it must support workflow_dispatch
+        required: false
+        default: goreleaser.yml
+        type: string
+      runner:
+        description: Runner label; the runner needs the gh CLI
+        required: false
+        default: ubuntu-latest
+        type: string
+      timeout-minutes:
+        description: Job timeout in minutes
+        required: false
+        default: 5
+        type: number
+    secrets:
+      release-token:
+        description: Optional. Pass the same release token given to release-please.yml (empty when absent); when set, its tag push already starts tag-triggered workflows and no dispatch is made. Only its presence is checked
+        required: false
+    outputs:
+      dispatched:
+        description: Whether a workflow run was requested (true or false)
+        value: ${{ jobs.dispatch.outputs.dispatched }}
+jobs:
+  dispatch:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      dispatched: ${{ steps.dispatch.outputs.dispatched }}
+    steps:
+    - name: Start tag publisher when Release Please uses GITHUB_TOKEN
+      id: dispatch
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_CREATED: ${{ inputs.release-created }}
+        TAG: ${{ inputs.tag }}
+        WORKFLOW_FILE: ${{ inputs.workflow }}
+        RELEASE_TOKEN_AVAILABLE: ${{ secrets.release-token != '' }}
+      run: |
+        if [ "$RELEASE_CREATED" != true ]; then
+          echo 'No release was created; nothing to dispatch.'
+          echo 'dispatched=false' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        command -v gh >/dev/null || { echo '::error::Runner prerequisite missing: gh. Provision it on self-hosted runners.'; exit 1; }
+        [[ "$WORKFLOW_FILE" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$ ]] || { echo '::error::workflow must be a workflow file name such as goreleaser.yml'; exit 1; }
+        [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo '::error::tag must be the release tag created by release-please'; exit 1; }
+        if [ "$RELEASE_TOKEN_AVAILABLE" = true ]; then
+          echo 'The release token starts the tag publisher automatically.'
+          echo 'dispatched=false' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        gh workflow run "$WORKFLOW_FILE" --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+        echo 'dispatched=true' >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: Release dispatch
+        FIELD_0: ${{ inputs.workflow }}
+        FIELD_1: ${{ inputs.tag }}
+        FIELD_2: ${{ steps.dispatch.outputs.dispatched }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- workflow: %s\n" "$FIELD_0"
+          printf -- "- tag: %s\n" "$FIELD_1"
+          printf -- "- dispatched: %s\n" "$FIELD_2"
+        } >> "$GITHUB_STEP_SUMMARY"
