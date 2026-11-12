@@ -327,6 +327,36 @@ Homebrew Formula.
 
 - `update-formula`: `contents: read`.
 
+## nvim-docs.yml
+
+Neovim Docs (mini.doc).
+
+| Input | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| docs-command | string | False | make docs | Command that regenerates the vim help, run with bash from working-directory; MINI_PATH points at the pinned mini.nvim checkout |
+| commit | boolean | False | True | Commit and push regenerated files to the current branch; only happens for push and workflow_dispatch events. Set false to generate without committing |
+| file-pattern | string | False | . | Shell-style quoted git pathspec list, relative to working-directory, limiting what is committed (for example doc/*.txt) |
+| commit-message | string | False | chore(docs): regenerate vim help | Commit message for regenerated docs |
+| neovim-version | string | False | v0.12.5 | Exact Neovim release tag, or nightly for intentional compatibility testing |
+| neovim-sha256 | string | False |  | Reviewed SHA-256 override takes precedence over the default pin; required for nondefault stable releases. Empty nightly uses metadata. |
+| mini-version | string | False | a995fe9cd4193fb492b5df69175a351a74b3d36b | Immutable mini.nvim commit SHA (default: v0.17.0) |
+| runner | string | False | ubuntu-latest | Runner label; self-hosted runners must provision gh, Python 3, git and archive tools |
+| timeout-minutes | number | False | 15 | Job timeout in minutes |
+| working-directory | string | False | . | Directory containing the plugin and its docs command |
+
+### Secrets
+
+- `token`: Optional token with contents:write used only to push the docs commit; defaults to the workflow GITHUB_TOKEN, which does not trigger further workflow runs.
+
+### Outputs
+
+- `changed`: Whether the docs command changed files matching file-pattern.
+- `committed`: Whether a docs commit was pushed.
+
+### Job permissions
+
+- `docs`: `contents: write`.
+
 ## nvim-format.yml
 
 Neovim Format (stylua).

@@ -176,6 +176,15 @@ jobs:
     uses: ./.github/workflows/nvim-tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
       working-directory: fixtures/nvim
+  nvim-docs:
+    # commit: false generates the vim help without pushing to this repository.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/nvim-docs.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/nvim
+      docs-command: make docs && test -s doc/fixture.txt
+      commit: false
   homebrew-skip:
     uses: ./.github/workflows/homebrew-formula.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 lacks $/ workflow-call support; resolved from this commit
     with:
@@ -281,6 +290,7 @@ jobs:
     - nvim-format
     - nvim-lint
     - nvim-tests
+    - nvim-docs
     - homebrew-skip
     - artifacts
     - pnpm-handoff-source

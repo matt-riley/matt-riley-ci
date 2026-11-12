@@ -77,6 +77,7 @@ For a monorepo, set `working-directory: packages/server`. Artifact and diagnosti
 | `nvim-format.yml` | Pinned StyLua | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |
 | `nvim-lint.yml` | Pinned standalone luacheck, no apt setup | Linux x64 with gh and Python 3; use Universal CI for other platforms |
 | `nvim-tests.yml` | Exact Neovim release and pinned mini.test | Linux/macOS x64/arm64 with gh, Python 3 and archive tools |
+| `nvim-docs.yml` | Opt-in: generate vim help with the consumer's docs command and commit it | Linux/macOS x64/arm64 with gh, Python 3, git and archive tools |
 | `pnpm-lockfile-sync.yml` | Generate and publish a trusted release PR lockfile in isolated jobs | Linux with pnpm/Node |
 | `release-please.yml` | Release PRs and tagged releases; generic monorepo outputs | Linux with release-please |
 | `request-app-deploy.yml` | Request exact source/artifact deployment from matt-riley/infra | Linux; project-specific target |
