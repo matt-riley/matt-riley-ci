@@ -432,6 +432,30 @@ None.
 - `generate`: `contents: read`.
 - `publish`: `contents: read`.
 
+## release-please-dispatch.yml
+
+Release Please Dispatch.
+
+| Input | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| release-created | string | True |  | The release_created output of release-please.yml; the follow-on only runs for true |
+| tag | string | True |  | The tag_name output of release-please.yml; the workflow is dispatched at this tag |
+| workflow | string | False | goreleaser.yml | File name of the workflow to dispatch at the tag (for example goreleaser.yml, docker-publish.yml or homebrew.yml); it must support workflow_dispatch |
+| runner | string | False | ubuntu-latest | Runner label; the runner needs the gh CLI |
+| timeout-minutes | number | False | 5 | Job timeout in minutes |
+
+### Secrets
+
+- `release-token`: Optional. Pass the same release token given to release-please.yml (empty when absent); when set, its tag push already starts tag-triggered workflows and no dispatch is made. Only its presence is checked.
+
+### Outputs
+
+- `dispatched`: Whether a workflow run was requested (true or false).
+
+### Job permissions
+
+- `dispatch`: `contents: read`, `actions: write`.
+
 ## release-please.yml
 
 Release Please.

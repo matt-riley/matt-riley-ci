@@ -269,6 +269,40 @@ jobs:
     needs: check
 ```
 
+## release-please-dispatch.yml
+
+Opt-in follow-on that replaces the thin `dispatch-goreleaser` job many consumers copy. Tags created with the default GITHUB_TOKEN do not start tag-triggered workflows, but `workflow_dispatch` is still allowed, so after a release this job runs `gh workflow run <workflow> --ref <tag>` (`workflow` defaults to `goreleaser.yml`; use it for `homebrew.yml` or a Docker publisher too). It is a separate workflow rather than an input of release-please.yml because a reusable workflow's job permissions must fit inside the caller's grant: adding `actions: write` to release-please.yml would stop every existing caller from starting. The calling job therefore grants `actions: write` itself. Pass the same release token as the optional `release-token` secret (empty when absent): when it is set its tag push already starts the publisher and nothing is dispatched. No new secret is introduced and the token is only checked for presence. The dispatched workflow must accept `workflow_dispatch`. Use `needs` for anything that must finish first (for example a build and publish job).
+
+```yaml
+name: Release
+'on':
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  release-please:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@REVIEWED_COMMIT_SHA
+    secrets:
+      token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+  dispatch:
+    needs: release-please
+    permissions:
+      contents: read
+      actions: write
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-please-dispatch.yml@REVIEWED_COMMIT_SHA
+    with:
+      release-created: ${{ needs.release-please.outputs.release_created }}
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      workflow: goreleaser.yml
+    secrets:
+      release-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+```
+
 ## request-app-deploy.yml
 
 Install a contents-write dispatch App only on matt-riley/infra. Add this job after successful build/test jobs. The app identifier must be allowlisted by the receiving infrastructure repository.
