@@ -222,6 +222,21 @@ jobs:
     uses: matt-riley/matt-riley-ci/.github/workflows/nvim-lint.yml@REVIEWED_COMMIT_SHA
 ```
 
+## nvim-typecheck.yml
+
+Opt-in LuaLS typecheck, as pint.nvim and slides.nvim run today. It installs a pinned, checksum-verified lua-language-server (`luals-version` / `luals-sha256`, Linux x64) and the pinned Neovim used by nvim-tests.yml, exports that Neovim's runtime as `VIMRUNTIME` (so `"$VIMRUNTIME/lua"` in `.luarc.json` resolves), and runs `lua-language-server --check=<check-path> --checklevel=<checklevel> --check_format=json`. Any reported diagnostic fails the job and is printed; a missing result file or a LuaLS crash also fails. Configure globals, libraries and ignored directories in the consumer's `.luarc.json`. Defaults: `check-path: .`, `checklevel: Warning`.
+
+```yaml
+name: Typecheck
+'on':
+  pull_request: null
+permissions:
+  contents: read
+jobs:
+  run:
+    uses: matt-riley/matt-riley-ci/.github/workflows/nvim-typecheck.yml@REVIEWED_COMMIT_SHA
+```
+
 ## nvim-tests.yml
 
 Commit tests/minimal_init.lua that appends os.getenv("MINI_PATH") to runtimepath, calls require("mini.test").setup(), and appends the consumer repository to runtimepath. Commit nonempty test*.lua test sets. Set minimal-init/test-directory when paths differ. The workflow supplies its CI reporter and fails init/collection errors. Pair stable release overrides with neovim-sha256; nightly uses GitHub asset metadata by default.

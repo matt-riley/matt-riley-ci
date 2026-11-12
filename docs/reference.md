@@ -434,6 +434,34 @@ None.
 
 - `tests`: `contents: read`.
 
+## nvim-typecheck.yml
+
+Neovim Typecheck (LuaLS).
+
+| Input | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| check-path | string | False | . | Path passed to lua-language-server --check, relative to working-directory |
+| checklevel | string | False | Warning | Lowest diagnostic severity reported by LuaLS (Error, Warning, Information or Hint) |
+| luals-version | string | False | 3.13.6 | Pinned LuaLS release; pair overrides with luals-sha256 |
+| luals-sha256 | string | False | 347cb07e609cb84d9731c04603340ae749d8abe802f1ad50607383ab0e865366 | Expected SHA-256 of the Linux x64 LuaLS archive; pair overrides with luals-version |
+| neovim-version | string | False | v0.12.5 | Exact Neovim release tag, or nightly; its runtime is exposed to LuaLS as VIMRUNTIME |
+| neovim-sha256 | string | False |  | Reviewed SHA-256 override takes precedence over the default pin; required for nondefault stable releases. Empty nightly uses metadata. |
+| runner | string | False | ubuntu-latest | Runner label; Linux x64 only, and self-hosted runners must provision gh, Python 3 and tar |
+| timeout-minutes | number | False | 15 | Job timeout in minutes |
+| working-directory | string | False | . | Directory containing the Lua sources and .luarc.json |
+
+### Secrets
+
+None.
+
+### Outputs
+
+None.
+
+### Job permissions
+
+- `typecheck`: `contents: read`.
+
 ## pnpm-lockfile-sync.yml
 
 PNPM Lockfile Sync.

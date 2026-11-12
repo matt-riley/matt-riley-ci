@@ -172,6 +172,10 @@ jobs:
     with:
       working-directory: fixtures/nvim
       paths: lua tests
+  nvim-typecheck:
+    uses: ./.github/workflows/nvim-typecheck.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    with:
+      working-directory: fixtures/nvim
   nvim-tests:
     uses: ./.github/workflows/nvim-tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
@@ -289,6 +293,7 @@ jobs:
     - queue-proof
     - nvim-format
     - nvim-lint
+    - nvim-typecheck
     - nvim-tests
     - nvim-docs
     - homebrew-skip
