@@ -23,6 +23,16 @@ jobs:
 
 Commit go.mod. go-version-file defaults to working-directory/go.mod; coverage requires test-args that generate the chosen file.
 
+To fail the job below a minimum total statement coverage, add `coverage-threshold` (a percent above 0 and at most 100; the default `0` disables the gate). It reads the Go profile named by `coverage-path`, so also set `coverage-artifact-name` and make `test-args` (or `test-command`) write that profile. It uses the `total:` figure from `go tool cover -func`, the same number the per-repository gates in hopcli, newbrew and mediacreator compute, and fails only when the total is strictly below the threshold.
+
+```yaml
+    with:
+      test-args: -coverprofile=coverage.out
+      coverage-path: coverage.out
+      coverage-artifact-name: go-coverage
+      coverage-threshold: 71
+```
+
 ```yaml
 name: Go CI
 'on':

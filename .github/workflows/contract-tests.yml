@@ -58,6 +58,7 @@ jobs:
       test-args: -coverprofile=coverage.out
       coverage-path: coverage.out
       coverage-artifact-name: go-coverage
+      coverage-threshold: 40
       build-command: go build -ldflags "-s -w" ./...
   go-snapshot:
     # The called workflow includes a release job; the active snapshot job is read-only.
