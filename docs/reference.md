@@ -324,6 +324,38 @@ Homebrew Formula.
 
 - `update-formula`: `contents: read`.
 
+## npm-publish.yml
+
+npm Publish.
+
+| Input | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| ref | string | False |  | Git ref to check out and publish, normally the tag_name output of release-please.yml; empty uses the triggering ref |
+| working-directory | string | False | . | Directory containing the package.json to publish |
+| node-version | string | False | 24 | Node version used to install, build and publish |
+| registry-url | string | False | https://npm.pkg.github.com | npm registry URL; the default is GitHub Packages |
+| scope | string | False |  | Optional registry scope such as @owner; empty falls back to the repository owner for GitHub Packages |
+| install-command | string | False |  | Optional install command run without the publish token, for example npm ci; empty skips it |
+| build-command | string | False |  | Optional build command run without the publish token, for example npm run build; empty skips it |
+| verify-version | boolean | False | True | When ref is set, require it to end with the package.json version before publishing |
+| access | string | False |  | Optional package access passed to npm publish (public or restricted); empty keeps the npm default |
+| dist-tag | string | False |  | Optional npm dist-tag passed to npm publish; empty keeps latest |
+| dry-run | boolean | False | False | Run npm publish --dry-run, which packs and checks without publishing |
+| runner | string | False | ubuntu-latest | Runner label |
+| timeout-minutes | number | False | 15 | Job timeout in minutes |
+
+### Secrets
+
+- `token`: Optional registry token exposed only to the publish step as NODE_AUTH_TOKEN; defaults to the GitHub token, which publishes to GitHub Packages with packages write.
+
+### Outputs
+
+None.
+
+### Job permissions
+
+- `publish`: `contents: read`, `packages: write`.
+
 ## nvim-format.yml
 
 Neovim Format (stylua).

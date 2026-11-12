@@ -316,6 +316,40 @@ jobs:
       PRIVATE_KEY: ${{ secrets.INFRA_DISPATCH_PRIVATE_KEY }}
 ```
 
+## npm-publish.yml
+
+Opt-in follow-on that replaces the `publish-typescript-client` (flagz) and `publish-package` (agent-skills) jobs. It checks out `ref` (pass release-please's `tag_name`, or `component_tag_name` for a monorepo package), sets up Node with `registry-url` (default GitHub Packages) and `scope` (default: the repository owner), and, when `ref` is set and `verify-version` is true, requires the ref to end with the `package.json` version. `install-command` and `build-command` (both empty by default) run first without any publish credential; only the final `npm publish` step receives `NODE_AUTH_TOKEN`, which is the optional `token` secret or else the workflow's GITHUB_TOKEN, so the default needs `packages: write` on the calling job and no new secret. Pass `token` only to publish to a registry that needs its own token. `access`, `dist-tag` and `dry-run` map to npm publish flags (`dry-run` packs and checks without publishing). Provenance and OIDC trusted publishing are not offered: both would force every caller to grant `id-token: write`.
+
+```yaml
+name: Release
+'on':
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  release-please:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: matt-riley/matt-riley-ci/.github/workflows/release-please.yml@REVIEWED_COMMIT_SHA
+    with:
+      component-output-key: clients/typescript
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.component_release_created == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: matt-riley/matt-riley-ci/.github/workflows/npm-publish.yml@REVIEWED_COMMIT_SHA
+    with:
+      ref: ${{ needs.release-please.outputs.component_tag_name }}
+      working-directory: clients/typescript
+      install-command: npm ci
+      build-command: npm run build
+```
+
 ## tailscale-acl.yml
 
 Configure the Tailscale federated identity and restrict source workflow/repository/branch claims. Commit policy.hujson. Same-repository PRs validate; fork PRs skip authenticated checks and are validated after trusted maintainer review. Default-branch pushes apply. Protect apply through the environment input and Tailscale identity policy. The protected environment is bound only to applies; authorize the appropriate environment-free test context as well. [GitHub OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc#example-subject-claims) differ between environment jobs and PR/branch jobs; use the actual subject format configured for your repository.

@@ -1,0 +1,169 @@
+name: npm Publish
+'on':
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out and publish, normally the tag_name output of release-please.yml; empty uses the triggering ref
+        required: false
+        default: ''
+        type: string
+      working-directory:
+        description: Directory containing the package.json to publish
+        required: false
+        default: .
+        type: string
+      node-version:
+        description: Node version used to install, build and publish
+        required: false
+        default: '24'
+        type: string
+      registry-url:
+        description: npm registry URL; the default is GitHub Packages
+        required: false
+        default: https://npm.pkg.github.com
+        type: string
+      scope:
+        description: Optional registry scope such as @owner; empty falls back to the repository owner for GitHub Packages
+        required: false
+        default: ''
+        type: string
+      install-command:
+        description: Optional install command run without the publish token, for example npm ci; empty skips it
+        required: false
+        default: ''
+        type: string
+      build-command:
+        description: Optional build command run without the publish token, for example npm run build; empty skips it
+        required: false
+        default: ''
+        type: string
+      verify-version:
+        description: When ref is set, require it to end with the package.json version before publishing
+        required: false
+        default: true
+        type: boolean
+      access:
+        description: Optional package access passed to npm publish (public or restricted); empty keeps the npm default
+        required: false
+        default: ''
+        type: string
+      dist-tag:
+        description: Optional npm dist-tag passed to npm publish; empty keeps latest
+        required: false
+        default: ''
+        type: string
+      dry-run:
+        description: Run npm publish --dry-run, which packs and checks without publishing
+        required: false
+        default: false
+        type: boolean
+      runner:
+        description: Runner label
+        required: false
+        default: ubuntu-latest
+        type: string
+      timeout-minutes:
+        description: Job timeout in minutes
+        required: false
+        default: 15
+        type: number
+    secrets:
+      token:
+        description: Optional registry token exposed only to the publish step as NODE_AUTH_TOKEN; defaults to the GitHub token, which publishes to GitHub Packages with packages write
+        required: false
+jobs:
+  publish:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Set up Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      with:
+        node-version: ${{ inputs.node-version }}
+        registry-url: ${{ inputs.registry-url }}
+        scope: ${{ inputs.scope }}
+    - name: Verify package
+      id: verify
+      env:
+        REF: ${{ inputs.ref }}
+        VERIFY_VERSION: ${{ inputs.verify-version }}
+        ACCESS: ${{ inputs.access }}
+        DIST_TAG: ${{ inputs.dist-tag }}
+        REGISTRY_URL: ${{ inputs.registry-url }}
+      run: |
+        [[ "$REGISTRY_URL" =~ ^https://[A-Za-z0-9._~:/-]+$ ]] || { echo '::error::registry-url must be an https URL'; exit 1; }
+        [[ -z "$ACCESS" || "$ACCESS" = public || "$ACCESS" = restricted ]] || { echo '::error::access must be empty, public or restricted'; exit 1; }
+        [[ -z "$DIST_TAG" || "$DIST_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo '::error::dist-tag must be a plain tag name'; exit 1; }
+        test -f package.json || { echo '::error::package.json not found in working-directory'; exit 1; }
+        python3 -I - <<'PY'
+        import json, os, sys
+        package = json.load(open('package.json'))
+        version = package.get('version')
+        if not isinstance(version, str) or not version: raise SystemExit('package.json needs a version')
+        if package.get('private') is True: raise SystemExit('package.json is private; npm will not publish it')
+        ref = os.environ['REF']
+        if os.environ['VERIFY_VERSION'] == 'true' and ref and not ref.endswith(version):
+            raise SystemExit('Ref ' + ref + ' does not end with package version ' + version)
+        print('Publishing ' + str(package.get('name')) + '@' + version)
+        PY
+      shell: bash
+    - name: Install dependencies
+      if: ${{ inputs.install-command != '' }}
+      env:
+        INSTALL_COMMAND: ${{ inputs.install-command }}
+      run: |
+        bash --noprofile --norc -eo pipefail -c "$INSTALL_COMMAND"
+      shell: bash
+    - name: Build
+      if: ${{ inputs.build-command != '' }}
+      env:
+        BUILD_COMMAND: ${{ inputs.build-command }}
+      run: |
+        bash --noprofile --norc -eo pipefail -c "$BUILD_COMMAND"
+      shell: bash
+    - name: Publish
+      id: publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.token || github.token }}
+        ACCESS: ${{ inputs.access }}
+        DIST_TAG: ${{ inputs.dist-tag }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        args=(publish)
+        [ -z "$ACCESS" ] || args+=(--access "$ACCESS")
+        [ -z "$DIST_TAG" ] || args+=(--tag "$DIST_TAG")
+        [ "$DRY_RUN" != true ] || args+=(--dry-run)
+        npm "${args[@]}"
+      shell: bash
+    - name: Summary
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SUMMARY_TITLE: npm publish
+        FIELD_0: ${{ inputs.registry-url }}
+        FIELD_1: ${{ inputs.ref }}
+        FIELD_2: ${{ inputs.dry-run }}
+        FIELD_3: ${{ steps.publish.outcome }}
+        JOB_STATUS: ${{ job.status }}
+      run: |
+        {
+          printf "### %s\n\n" "$SUMMARY_TITLE"
+          printf -- "- Job: %s\n" "$JOB_STATUS"
+          printf -- "- registry: %s\n" "$FIELD_0"
+          printf -- "- ref: %s\n" "$FIELD_1"
+          printf -- "- dry-run: %s\n" "$FIELD_2"
+          printf -- "- publish: %s\n" "$FIELD_3"
+        } >> "$GITHUB_STEP_SUMMARY"
+      working-directory: .
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory || '.' }}
