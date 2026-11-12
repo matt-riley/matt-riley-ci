@@ -1,0 +1,10 @@
+{
+  "name": "@matt-riley/workflow-npm-fixture",
+  "version": "1.0.0",
+  "description": "Dry-run fixture for the release-publish-npm workflow contract tests; never published",
+  "license": "GPL-3.0-only",
+  "files": ["index.js"],
+  "scripts": {
+    "build": "node -e \"require('fs').writeFileSync('index.js', 'module.exports = 42\\n')\""
+  }
+}
