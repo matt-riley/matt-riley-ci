@@ -110,12 +110,12 @@ jobs:
       run-build: true
       build-env: |
         API_ENDPOINT_URL=https://example.test
-  npm-publish:
+  publish-npm:
     # dry-run packs and checks the fixture without publishing to any registry.
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/npm-publish.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
+    uses: ./.github/workflows/publish-npm.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ workflow calls; resolved from this commit
     with:
       working-directory: fixtures/npm
       build-command: npm run build
@@ -281,7 +281,7 @@ jobs:
     - bun
     - neutral
     - aube
-    - npm-publish
+    - publish-npm
     - docker
     - docker-export
     - docker-multi-export
