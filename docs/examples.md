@@ -44,6 +44,8 @@ jobs:
     uses: matt-riley/matt-riley-ci/.github/workflows/go-ci.yml@REVIEWED_COMMIT_SHA
 ```
 
+Set `run-verify: true` to run `go mod verify`, and `run-tidy: true` to fail when `go mod tidy` would change `go.mod` or `go.sum` (the diff is printed and the files are restored afterwards, so later steps see your committed files). Both default to off and run in `working-directory`.
+
 ## go-lint.yml
 
 Commit go.mod and a compatible .golangci.yml when using custom lint configuration.

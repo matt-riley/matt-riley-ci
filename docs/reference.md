@@ -170,6 +170,8 @@ Go CI.
 | run-race | boolean | False | False | Run tests with -race |
 | run-vet | boolean | False | True | Run go vet |
 | run-fmt | boolean | False | False | Check formatting with gofmt |
+| run-verify | boolean | False | False | Run go mod verify to check that downloaded module contents match go.sum |
+| run-tidy | boolean | False | False | Fail if go mod tidy would change go.mod or go.sum (the files are restored afterwards) |
 | timeout-minutes | number | False | 15 | Job timeout in minutes |
 | test-args | string | False |  | Extra args passed to go test |
 | test-command | string | False |  | Custom command to run instead of the default go test invocation; bypasses test-args and run-race |
