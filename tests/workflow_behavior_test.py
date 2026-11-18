@@ -13,7 +13,7 @@ import unittest
 
 import yaml
 
-from pins import MISE_RELEASE, NEOVIM_RELEASE_TAG, assert_nonempty_pin
+from pins import MISE_RELEASE, V_SEMVER_TAG, assert_nonempty_pin
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -398,7 +398,7 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
             self.stub(command, "import os, pathlib\np=pathlib.Path(os.environ['RUNNER_TEMP']); (p/'extracted').touch(); (p/'stylua-bin').mkdir(exist_ok=True); (p/'stylua-bin/stylua').touch()\n")
         for name, identity, input_key in [('nvim-tests.yml', 'Install Neovim', 'neovim-version'), ('nvim-format.yml', 'Install stylua', 'stylua-version')]:
             pinned = workflow(name)['on']['workflow_call']['inputs'][input_key]['default']
-            assert_nonempty_pin(self, pinned, NEOVIM_RELEASE_TAG, input_key)
+            assert_nonempty_pin(self, pinned, V_SEMVER_TAG, input_key)
             with self.subTest(workflow=name):
                 for version, expected in [(pinned, ''), ('v9.9.9', ''), ('v9.9.9', '0' * 64)]:
                     (self.root / 'extracted').unlink(missing_ok=True)
@@ -514,7 +514,7 @@ else: sys.exit('unexpected request')
 
     def test_scanner_cache_only_reuses_exact_pinned_versions(self):
         pinned = workflow('go-security.yml')['on']['workflow_call']['inputs']['govulncheck-version']['default']
-        assert_nonempty_pin(self, pinned, NEOVIM_RELEASE_TAG, 'govulncheck-version')
+        assert_nonempty_pin(self, pinned, V_SEMVER_TAG, 'govulncheck-version')
         for version, cacheable in [(pinned, 'true'), ('latest', 'false'), ('main', 'false')]:
             Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
             self.okay(self.run_step('go-security.yml', 'scanner', VERSION=version))

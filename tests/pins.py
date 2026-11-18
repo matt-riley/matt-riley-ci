@@ -4,7 +4,7 @@ import re
 MISE_RELEASE = re.compile(r'^\d{4}\.\d+\.\d+$')
 NODE_MAJOR = re.compile(r'^\d+$')
 LUALS_RELEASE = re.compile(r'^\d+\.\d+\.\d+$')
-NEOVIM_RELEASE_TAG = re.compile(r'^v\d+\.\d+\.\d+$')
+V_SEMVER_TAG = re.compile(r'^v\d+\.\d+\.\d+$')
 
 
 def assert_nonempty_pin(test, value, pattern, label):
