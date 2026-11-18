@@ -9,6 +9,8 @@ import unittest
 
 import yaml
 
+from pins import LUALS_RELEASE, assert_nonempty_pin
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/nvim-typecheck.yml').read_text())
 JOB = WORKFLOW['jobs']['typecheck']
@@ -41,7 +43,7 @@ class NvimTypecheck(unittest.TestCase):
         return subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', step(identity)['run']], cwd=self.project, env={**self.env, **env}, text=True, capture_output=True, timeout=60)
 
     def test_opt_in_workflow_with_the_consumers_settings_as_defaults(self):
-        self.assertEqual('3.13.6', INPUTS['luals-version']['default'])
+        assert_nonempty_pin(self, INPUTS['luals-version']['default'], LUALS_RELEASE, 'luals-version')
         self.assertEqual('Warning', INPUTS['checklevel']['default'])
         self.assertEqual('.', INPUTS['check-path']['default'])
         for name, spec in INPUTS.items():
@@ -61,7 +63,7 @@ class NvimTypecheck(unittest.TestCase):
         self.stub('gh', "import pathlib, sys\na = sys.argv\nassert a[1:3] == ['release', 'download'] and a[a.index('--repo') + 1] == 'LuaLS/lua-language-server', a\n"
                         "pathlib.Path(a[a.index('--dir') + 1], a[a.index('--pattern') + 1]).write_bytes(b'luals archive')\n")
         self.stub('tar', "import os, pathlib\npathlib.Path(os.environ['RUNNER_TEMP'], 'extracted').touch()\n")
-        args = dict(VERSION='3.13.6', EXPECTED_SHA256=digest, GH_TOKEN='x')
+        args = dict(VERSION=INPUTS['luals-version']['default'], EXPECTED_SHA256=digest, GH_TOKEN='x')
         result = self.run_step('Install LuaLS', **args)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertTrue((self.root / 'extracted').exists())
