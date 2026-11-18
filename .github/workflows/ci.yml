@@ -275,6 +275,9 @@ jobs:
             go_paths, go_versions, build_cache = detect('go')
             dependency_paths += go_paths
             versions += go_versions
+        if pathlib.Path('Cargo.toml').is_file():
+            cargo_home = pathlib.Path(os.environ.get('CARGO_HOME') or pathlib.Path.home() / '.cargo').absolute()
+            dependency_paths += [str(cargo_home / directory) for directory in ('registry/index', 'registry/cache', 'git/db')]
         if os.environ['PLAYWRIGHT_CACHE'] == 'true':
             for location in ('.cache/ms-playwright', 'Library/Caches/ms-playwright'):
                 dependency_paths.append(str(pathlib.Path.home() / location))
@@ -300,8 +303,8 @@ jobs:
         path: ${{ steps.cache-metadata.outputs.paths }}
         key: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{ steps.cache-metadata.outputs.tools
           }}-${{ hashFiles(format('{0}/**/go.mod', inputs.working-directory || '.'), format('{0}/**/go.sum', inputs.working-directory || '.'),
-          format('{0}/**/*lock*', inputs.working-directory || '.'), format('{0}/mise.toml', inputs.working-directory || '.'),
-          format('{0}/.tool-versions', inputs.working-directory || '.'), inputs.cache-dependency-path) }}
+          format('{0}/**/*lock*', inputs.working-directory || '.'), format('{0}/**/Cargo.toml', inputs.working-directory || '.'),
+          format('{0}/mise.toml', inputs.working-directory || '.'), format('{0}/.tool-versions', inputs.working-directory || '.'), inputs.cache-dependency-path) }}
         restore-keys: deps-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-metadata.outputs.scope }}-${{ steps.cache-metadata.outputs.path_set }}-${{
           steps.cache-metadata.outputs.tools }}-
     - name: Restore Go build cache

@@ -267,6 +267,48 @@ run = "test -f count"
         self.assertIn('ms-playwright', output)
         self.assertNotEqual(first_scope, re.findall(r'scope=(.*)', output)[-1])
 
+    def test_cargo_cache_selects_downloads_without_a_lockfile_or_cargo_binary(self):
+        (self.project / 'Cargo.toml').write_text('[workspace]\nmembers = []\n')
+        (self.bin / 'bash').symlink_to('/bin/bash')
+        (self.bin / 'python3').symlink_to(sys.executable)
+        home = self.root / 'home'
+        home.mkdir()
+        self.okay(self.run_step('ci.yml', 'cache-metadata', PATH=str(self.bin), HOME=str(home),
+            CARGO_HOME='', EXTRA_PATHS='', PLAYWRIGHT_CACHE='false'))
+        output = Path(self.env['GITHUB_OUTPUT']).read_text()
+        paths = output.partition('paths<<CACHE_PATHS\n')[2].partition('\nCACHE_PATHS\n')[0].splitlines()
+        self.assertCountEqual([str(home / '.cargo/registry/index'), str(home / '.cargo/registry/cache'),
+            str(home / '.cargo/git/db')], paths)
+        self.assertIn('build_cache=\n', output)
+
+    def test_cargo_cache_respects_configured_home_in_mixed_projects(self):
+        (self.project / 'Cargo.toml').write_text('[workspace]\nmembers = []\n')
+        (self.project / 'package-lock.json').write_text('{}')
+        self.stub('npm', "print('/tmp/npm-store')\n")
+        self.stub('node', "print('v24.0.0')\n")
+        output_path = Path(self.env['GITHUB_OUTPUT'])
+        for configured, home in [('cargo data', self.project.resolve() / 'cargo data'),
+            (str(self.root / 'shared cargo'), self.root / 'shared cargo')]:
+            with self.subTest(cargo_home=configured):
+                output_path.unlink(missing_ok=True)
+                self.okay(self.run_step('ci.yml', 'cache-metadata', CARGO_HOME=configured,
+                    EXTRA_PATHS='', PLAYWRIGHT_CACHE='false'))
+                paths = output_path.read_text().partition('paths<<CACHE_PATHS\n')[2].partition('\nCACHE_PATHS\n')[0].splitlines()
+                self.assertCountEqual(['/tmp/npm-store', str(home / 'registry/index'),
+                    str(home / 'registry/cache'), str(home / 'git/db')], paths)
+
+    def test_cargo_cache_key_covers_lockless_workspace_members(self):
+        root_manifest = self.project / 'Cargo.toml'
+        member_manifest = self.project / 'crates/member/Cargo.toml'
+        member_manifest.parent.mkdir(parents=True)
+        for manifest in [root_manifest, member_manifest]:
+            manifest.touch()
+        key = step('ci.yml', 'dependencies')['with']['key']
+        hash_files = re.search(r'\$\{\{\s*hashFiles\(.*?\)\s*\}\}', key, re.S).group()
+        patterns = expression(hash_files, **{'working-directory': self.project.name, 'cache-dependency-path': ''})
+        matched = {path for pattern in patterns.split('|') if pattern for path in self.root.glob(pattern)}
+        self.assertEqual({root_manifest, member_manifest}, matched)
+
     def test_extra_cache_paths_resolve_from_the_consumer_project(self):
         self.okay(self.run_step('ci.yml', 'cache-metadata', EXTRA_PATHS='.cache/compiler\n~/.cache/global\n/tmp/absolute-cache\n!.cache/private', PLAYWRIGHT_CACHE='false'))
         output = Path(self.env['GITHUB_OUTPUT']).read_text()
