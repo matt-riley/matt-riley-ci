@@ -8,6 +8,8 @@ import unittest
 
 import yaml
 
+from pins import NODE_MAJOR, assert_nonempty_pin
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/release-publish-npm.yml').read_text())
 JOB = WORKFLOW['jobs']['publish']
@@ -55,7 +57,7 @@ class ReleasePublishNpm(unittest.TestCase):
 
     def test_defaults_permissions_and_auth_match_the_two_consumers(self):
         self.assertEqual('https://npm.pkg.github.com', INPUTS['registry-url']['default'])
-        self.assertEqual('24', INPUTS['node-version']['default'])
+        assert_nonempty_pin(self, INPUTS['node-version']['default'], NODE_MAJOR, 'node-version')
         for name, spec in INPUTS.items():
             self.assertFalse(spec.get('required', False), name)
         self.assertEqual({'contents': 'read', 'packages': 'write'}, JOB['permissions'])

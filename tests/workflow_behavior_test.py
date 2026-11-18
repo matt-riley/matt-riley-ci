@@ -13,6 +13,8 @@ import unittest
 
 import yaml
 
+from pins import MISE_RELEASE, V_SEMVER_TAG, assert_nonempty_pin
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -368,7 +370,7 @@ run = "test -f count"
         payload = b'fixed asset'
         digest = hashlib.sha256(payload).hexdigest()
         self.stub('gh', "import pathlib, sys\na=sys.argv\npathlib.Path(a[a.index('--dir')+1], 'luacheck').write_bytes(b'fixed asset')\n")
-        args = dict(VERSION='v1.2.0', EXPECTED_SHA256='0' * 64)
+        args = dict(VERSION=workflow('nvim-lint.yml')['on']['workflow_call']['inputs']['luacheck-version']['default'], EXPECTED_SHA256='0' * 64)
         result = self.run_step('nvim-lint.yml', 'Install luacheck', **args)
         self.assertNotEqual(0, result.returncode)
         self.assertIn('checksum mismatch', result.stderr)
@@ -394,7 +396,9 @@ else: pathlib.Path(a[a.index('--dir')+1], a[a.index('--pattern')+1]).write_bytes
 ''')
         for command in ['tar', 'unzip']:
             self.stub(command, "import os, pathlib\np=pathlib.Path(os.environ['RUNNER_TEMP']); (p/'extracted').touch(); (p/'stylua-bin').mkdir(exist_ok=True); (p/'stylua-bin/stylua').touch()\n")
-        for name, identity, pinned in [('nvim-tests.yml', 'Install Neovim', 'v0.12.5'), ('nvim-format.yml', 'Install stylua', 'v2.4.0')]:
+        for name, identity, input_key in [('nvim-tests.yml', 'Install Neovim', 'neovim-version'), ('nvim-format.yml', 'Install stylua', 'stylua-version')]:
+            pinned = workflow(name)['on']['workflow_call']['inputs'][input_key]['default']
+            assert_nonempty_pin(self, pinned, V_SEMVER_TAG, input_key)
             with self.subTest(workflow=name):
                 for version, expected in [(pinned, ''), ('v9.9.9', ''), ('v9.9.9', '0' * 64)]:
                     (self.root / 'extracted').unlink(missing_ok=True)
@@ -509,7 +513,9 @@ else: sys.exit('unexpected request')
         self.assertIn('--skip=homebrew', Path(self.env['GITHUB_OUTPUT']).read_text())
 
     def test_scanner_cache_only_reuses_exact_pinned_versions(self):
-        for version, cacheable in [('v1.9.0', 'true'), ('latest', 'false'), ('main', 'false')]:
+        pinned = workflow('go-security.yml')['on']['workflow_call']['inputs']['govulncheck-version']['default']
+        assert_nonempty_pin(self, pinned, V_SEMVER_TAG, 'govulncheck-version')
+        for version, cacheable in [(pinned, 'true'), ('latest', 'false'), ('main', 'false')]:
             Path(self.env['GITHUB_OUTPUT']).unlink(missing_ok=True)
             self.okay(self.run_step('go-security.yml', 'scanner', VERSION=version))
             self.assertIn('cacheable=' + cacheable, Path(self.env['GITHUB_OUTPUT']).read_text())
@@ -1524,7 +1530,7 @@ class Policy(unittest.TestCase):
         self.assertEqual(3, len(tests['jobs']['queue-proof']['strategy']['matrix']['item']))
         bootstrap = step('contract-tests.yml', 'Install actionlint')
         self.assertTrue(bootstrap['uses'].startswith('jdx/mise-action@'))
-        self.assertEqual('2026.11.5', str(bootstrap['with']['version']))
+        assert_nonempty_pin(self, bootstrap['with']['version'], MISE_RELEASE, 'contract-tests mise-action version')
         release = workflow('repository-release-please.yml')
         self.assertEqual('validate', release['jobs']['release']['needs'])
         run = step('repository-release-please.yml', 'move')['run']
