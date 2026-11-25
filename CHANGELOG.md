@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.3.0](https://github.com/matt-riley/matt-riley-ci/compare/v4.2.0...v4.3.0) (2026-11-25)
+
+
+### Features
+
+* **ci:** cache Cargo dependencies in Universal CI ([#141](https://github.com/matt-riley/matt-riley-ci/issues/141)) ([c0e6946](https://github.com/matt-riley/matt-riley-ci/commit/c0e6946b1acb68a526ec34fb251d16ac1f63d358))
+
 ## [4.2.0](https://github.com/matt-riley/matt-riley-ci/compare/v4.1.1...v4.2.0) (2026-11-12)
 
 
