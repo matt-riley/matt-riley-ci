@@ -67,7 +67,7 @@ Lockfile generation validates the repository-relative working directory and reso
 
 Homebrew formula generation supports public source repositories with anonymously downloadable release assets. Private/internal sources now fail before download or formula generation because authentication in CI does not make the generated release URL available to Homebrew users.
 
-Universal cache discovery skips an automatic ecosystem cache when its tool is unavailable before tasks execute, including an uninitialized package-manager shim. Declare the tool in mise for automatic discovery, or supply explicit cache-paths when the install task provisions it later. Consumer task failures remain failures.
+Universal CI skips automatic Go and JavaScript package cache discovery when the corresponding tool is unavailable before tasks execute, including an uninitialized package-manager shim. Declare the tool in mise for automatic discovery, or supply explicit cache-paths when the install task provisions it later. Consumer task failures remain failures.
 
 Aube accepts an explicit parent-relative lockfile-path such as ../../pnpm-lock.yaml for workspace-root lockfiles, while requiring a tracked regular nonsymlink file inside the repository. GoReleaser publications use queue:max, retaining up to 100 pending runs under the same bounded queue policy as Docker/Homebrew.
 
